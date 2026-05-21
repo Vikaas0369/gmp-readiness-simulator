@@ -1,21 +1,127 @@
 import gradio as gr
+import plotly.graph_objects as go
 
 # ============================================================================
 # OpenLine Readiness Simulator
-# Phase 4D: Readiness Score + ROI + Risk Heatmap + Next-Steps Recommendations
+# Phase 5A: Visual layer — headline card, readiness gauge, sub-score ladder
 # ============================================================================
-#
-# Every assumption is sourced and visible at the top of this file. Readiness
-# weightings follow mainstream pharma operations literature; ROI assumptions
-# use conservative midpoints of publicly available industry ranges; risk
-# rules and recommendations are based on standard pharma project remediation
-# sequences and Catalyx's own 2025 Line Clearance Benchmark Report.
-#
+
 # ============================================================================
+# DESIGN SYSTEM — Catalyx-adjacent visual language
+# ============================================================================
+
+COLORS = {
+    "primary":      "#1a2b4a",   # deep navy
+    "accent":       "#2c8a8a",   # muted teal
+    "secondary":    "#d68910",   # warm amber
+    "risk_high":    "#a94442",   # muted red
+    "risk_medium":  "#d68910",   # muted amber
+    "risk_low":     "#1e7e34",   # muted green
+    "panel_bg":     "#f8f9fb",   # subtle gray panel
+    "text_primary": "#1a2b4a",
+    "text_muted":   "#5a6478",
+    "border":       "#dde2ec",
+}
+
+CUSTOM_CSS = f"""
+.gradio-container {{
+    max-width: 1100px !important;
+    margin: 0 auto !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}}
+
+#header-banner {{
+    background: linear-gradient(135deg, {COLORS['primary']} 0%, #2a4070 100%);
+    color: white;
+    padding: 32px 36px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+}}
+
+#header-banner h1 {{
+    color: white !important;
+    font-size: 28px !important;
+    font-weight: 600 !important;
+    margin: 0 0 8px 0 !important;
+}}
+
+#header-banner p {{
+    color: #c8d2e6 !important;
+    font-size: 15px !important;
+    margin: 0 !important;
+    line-height: 1.5 !important;
+}}
+
+#headline-card {{
+    background: white;
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+    padding: 28px 36px;
+    margin: 16px 0 24px 0;
+    box-shadow: 0 1px 3px rgba(26, 43, 74, 0.06);
+}}
+
+.results-section {{
+    background: white;
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+    padding: 24px 32px;
+    margin-bottom: 16px;
+}}
+
+.results-section h2 {{
+    color: {COLORS['primary']} !important;
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    margin-top: 0 !important;
+    padding-bottom: 12px !important;
+    border-bottom: 2px solid {COLORS['accent']} !important;
+}}
+
+.results-section h3 {{
+    color: {COLORS['primary']} !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    margin-top: 20px !important;
+}}
+
+table {{
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 12px 0 !important;
+}}
+
+th {{
+    background: {COLORS['panel_bg']} !important;
+    color: {COLORS['primary']} !important;
+    font-weight: 600 !important;
+    text-align: left !important;
+    padding: 10px 14px !important;
+    border-bottom: 2px solid {COLORS['border']} !important;
+    font-size: 13px !important;
+}}
+
+td {{
+    padding: 10px 14px !important;
+    border-bottom: 1px solid {COLORS['border']} !important;
+    font-size: 14px !important;
+    color: {COLORS['text_primary']} !important;
+    vertical-align: top !important;
+}}
+
+button.primary {{
+    background: {COLORS['primary']} !important;
+    border-color: {COLORS['primary']} !important;
+}}
+
+button.primary:hover {{
+    background: #2a4070 !important;
+}}
+"""
 
 
 # ============================================================================
-# READINESS SCORING TABLES (unchanged)
+# READINESS SCORING TABLES
 # ============================================================================
 
 WEIGHTS = {
@@ -108,7 +214,7 @@ VERDICT_BANDS = [
 
 
 # ============================================================================
-# ROI ASSUMPTIONS (unchanged)
+# ROI ASSUMPTIONS
 # ============================================================================
 
 DEFAULT_LABOR_RATE_USD_PER_HOUR = 65
@@ -127,7 +233,7 @@ DURATION_TO_HOURS = {
 
 
 # ============================================================================
-# RISK HEATMAP RULES (unchanged)
+# RISK HEATMAP RULES
 # ============================================================================
 
 def risk_legacy_integration(mes_system, ebr_system, equipment_age, **_):
@@ -340,194 +446,148 @@ RISK_RULES = [
 
 
 # ============================================================================
-# RECOMMENDATIONS LIBRARY (new in Phase 4D)
+# RECOMMENDATIONS LIBRARY
 # ============================================================================
-#
-# Each recommendation is a function that takes the inputs and the risk
-# results, and returns either None (don't recommend) or a string (do).
-#
-# Recommendations are then sorted by PRIORITY:
-#   1 = Regulatory blocker (must address before doing anything else)
-#   2 = Past-failure remediation (must address before restarting)
-#   3 = Foundational technical gap (must address before rollout)
-#   4 = Process / change-management improvement
-#   5 = Tactical / sequencing improvement
-#
-# The output to the user is the top 5–7 recommendations, sorted by priority.
-# ============================================================================
-
 
 def rec_regulatory_observations(inspection_outcome, **_):
     if inspection_outcome == "Major observations":
-        return (
-            1,
+        return (1,
             "**Resolve outstanding regulatory observations first.** Adding "
             "new validation scope while major inspection observations are "
             "open creates regulatory exposure. Close the existing CAPA "
-            "actions before initiating any OpenLine work."
-        )
+            "actions before initiating any OpenLine work.")
     return None
 
 
 def rec_validation_capacity(validation_maturity, num_lines, **_):
     if validation_maturity == "Underdeveloped":
-        return (
-            1,
+        return (1,
             f"**Build validation templates before scoping.** Validation "
             f"maturity is underdeveloped, and you're targeting {num_lines} "
             "lines. Without reusable IQ/OQ/PQ templates, the documentation "
             "effort will consume your QA team. Invest in templates and "
-            "training before kickoff."
-        )
+            "training before kickoff.")
     return None
 
 
 def rec_prior_attempt_postmortem(prior_attempt, **_):
     if prior_attempt == "Yes — stalled or failed":
-        return (
-            2,
+        return (2,
             "**Conduct a post-mortem on the previous attempt before "
             "restarting.** A prior stalled attempt creates organizational "
             "skepticism. Identify what failed (sponsorship, tech, change "
             "management, scope), document it, and explicitly state what's "
             "different this time. Without this, the new attempt will face "
-            "the same skepticism."
-        )
+            "the same skepticism.")
     return None
 
 
 def rec_sponsorship(prior_attempt, operator_familiarity, **_):
     if prior_attempt == "Yes — stalled or failed":
-        return (
-            2,
+        return (2,
             "**Re-engage executive sponsorship with a documented remit.** "
             "Given the prior failure, sponsor commitment must be explicit, "
             "named, and documented — verbal endorsement won't survive the "
             "first friction. Define decision rights and escalation paths "
-            "upfront."
-        )
+            "upfront.")
     if prior_attempt == "No — first attempt" and operator_familiarity == "Low":
-        return (
-            4,
+        return (4,
             "**Confirm and document executive sponsorship before kickoff.** "
             "First attempts combined with low operator familiarity will "
             "test sponsor commitment. Get written commitment from a named "
-            "executive with budget authority."
-        )
+            "executive with budget authority.")
     return None
 
 
 def rec_ebr_first(ebr_system, mes_system, **_):
     if ebr_system == "No":
-        return (
-            3,
+        return (3,
             "**Establish electronic batch record coverage before OpenLine.** "
             "Without eBR, OpenLine integration must build the batch-record "
             "interface from scratch, which adds months and creates a single "
-            "point of failure. Implement at least partial eBR coverage first."
-        )
+            "point of failure. Implement at least partial eBR coverage first.")
     return None
 
 
 def rec_mes_strategy(mes_system, **_):
     if mes_system == "None":
-        return (
-            3,
+        return (3,
             "**Define an MES strategy before scoping OpenLine.** With no "
             "MES, OpenLine has nothing to receive batch context from or "
             "send completion signals to. Choose whether to deploy a "
             "pharma-grade MES (Werum, SAP, Rockwell) in parallel or to "
             "scope OpenLine as a standalone solution with manual MES "
-            "interfaces."
-        )
+            "interfaces.")
     return None
 
 
 def rec_qa_capacity(validation_maturity, deviation_frequency, **_):
-    if (
-        validation_maturity == "Underdeveloped"
-        and deviation_frequency in ("3–5", "6 or more")
-    ):
-        return (
-            1,
+    if (validation_maturity == "Underdeveloped"
+        and deviation_frequency in ("3–5", "6 or more")):
+        return (1,
             "**Address QA capacity before adding new change-control "
             f"submissions.** You have {deviation_frequency} deviations per "
             "year against an underdeveloped validation function. New "
             "submissions will queue behind existing CAPAs. Either expand "
-            "QA capacity or sequence OpenLine behind the deviation backlog."
-        )
+            "QA capacity or sequence OpenLine behind the deviation backlog.")
     if deviation_frequency == "6 or more":
-        return (
-            4,
+        return (4,
             "**Run a deviation-reduction sprint before adding scope.** "
             "Six or more deviations per year suggests the underlying "
             "process is unstable. Stabilize first; otherwise OpenLine will "
-            "inherit the same instability post-deployment."
-        )
+            "inherit the same instability post-deployment.")
     return None
 
 
 def rec_operator_training(operator_familiarity, current_method, **_):
     if operator_familiarity == "Low" and current_method == "Fully paper-based":
-        return (
-            4,
+        return (4,
             "**Build operator readiness before go-live.** Operators moving "
             "from fully paper-based to AI-assisted line clearance need "
             "structured training, change champions on each shift, and "
-            "shadow-operation periods before cutover. Budget 2–3 months."
-        )
+            "shadow-operation periods before cutover. Budget 2–3 months.")
     if operator_familiarity == "Low":
-        return (
-            4,
+        return (4,
             "**Identify and train change-champion operators on each shift.** "
             "Low overall familiarity is overcome by visible peer adoption. "
-            "Train the highest-aptitude operators first and let them lead."
-        )
+            "Train the highest-aptitude operators first and let them lead.")
     return None
 
 
 def rec_equipment_audit(equipment_age, **_):
     if equipment_age == "Mostly over 10 years":
-        return (
-            3,
+        return (3,
             "**Conduct a line-by-line equipment audit before scoping.** "
             "With equipment mostly over 10 years old, expect PLC firmware "
             "mismatches and missing data outputs. Some lines may need "
             "upgrades before OpenLine can be deployed; the audit determines "
-            "which."
-        )
+            "which.")
     return None
 
 
 def rec_multi_site_pmo(num_facilities, **_):
     if num_facilities >= 4:
-        return (
-            5,
+        return (5,
             f"**Establish a dedicated PMO for the {int(num_facilities)}-site "
             "rollout.** At this scale, central program management, "
             "harmonized validation templates, and a sequenced site-by-site "
-            "go-live plan are non-negotiable. Without them, sites diverge."
-        )
+            "go-live plan are non-negotiable. Without them, sites diverge.")
     if num_facilities in (2, 3):
-        return (
-            5,
+        return (5,
             f"**Designate a central rollout lead across the "
             f"{int(num_facilities)} facilities.** Even at small multi-site "
             "scale, one accountable owner prevents the sites from "
-            "diverging on validation approach or operational practice."
-        )
+            "diverging on validation approach or operational practice.")
     return None
 
 
 def rec_pilot_scope(prior_attempt, num_lines, **_):
     if prior_attempt == "Yes — stalled or failed" and num_lines > 5:
-        return (
-            5,
+        return (5,
             f"**Reduce initial scope from {num_lines} lines to 2–3 lines "
             "for the restart.** A focused restart with visible early wins "
             "rebuilds organizational confidence faster than a broad "
-            "rollout. Expand only after the restart proves stable."
-        )
+            "rollout. Expand only after the restart proves stable.")
     return None
 
 
@@ -556,31 +616,24 @@ def compute_readiness_score(
     inspection_outcome, validation_maturity,
     mes_system, ebr_system, equipment_age,
 ):
-    process_inputs = [
-        SCORE_CURRENT_METHOD[current_method],
-        SCORE_CLEARANCE_DURATION[clearance_duration],
-        SCORE_DEVIATION_FREQUENCY[deviation_frequency],
-    ]
-    process_score = sum(process_inputs) / len(process_inputs)
-
-    org_inputs = [
-        SCORE_OPERATOR_FAMILIARITY[operator_familiarity],
-        SCORE_PRIOR_ATTEMPT[prior_attempt],
-    ]
-    org_score = sum(org_inputs) / len(org_inputs)
-
-    reg_inputs = [
-        SCORE_INSPECTION_OUTCOME[inspection_outcome],
-        SCORE_VALIDATION_MATURITY[validation_maturity],
-    ]
-    reg_score = sum(reg_inputs) / len(reg_inputs)
-
-    tech_inputs = [
-        SCORE_MES_SYSTEM[mes_system],
-        SCORE_EBR_SYSTEM[ebr_system],
-        SCORE_EQUIPMENT_AGE[equipment_age],
-    ]
-    tech_score = sum(tech_inputs) / len(tech_inputs)
+    process_score = (
+        SCORE_CURRENT_METHOD[current_method]
+        + SCORE_CLEARANCE_DURATION[clearance_duration]
+        + SCORE_DEVIATION_FREQUENCY[deviation_frequency]
+    ) / 3
+    org_score = (
+        SCORE_OPERATOR_FAMILIARITY[operator_familiarity]
+        + SCORE_PRIOR_ATTEMPT[prior_attempt]
+    ) / 2
+    reg_score = (
+        SCORE_INSPECTION_OUTCOME[inspection_outcome]
+        + SCORE_VALIDATION_MATURITY[validation_maturity]
+    ) / 2
+    tech_score = (
+        SCORE_MES_SYSTEM[mes_system]
+        + SCORE_EBR_SYSTEM[ebr_system]
+        + SCORE_EQUIPMENT_AGE[equipment_age]
+    ) / 3
 
     total = (
         process_score * WEIGHTS["process"]
@@ -640,33 +693,143 @@ def compute_roi(
 
 
 def compute_risk_heatmap(**inputs):
-    results = []
-    for name, rule_fn in RISK_RULES:
-        rating, explanation = rule_fn(**inputs)
-        results.append((name, rating, explanation))
-    return results
+    return [(name, *rule_fn(**inputs)) for name, rule_fn in RISK_RULES]
 
 
 def compute_recommendations(**inputs):
-    """
-    Run every recommendation rule. Collect non-None results.
-    Sort by priority (lower number = higher priority).
-    Return top 7 recommendations.
-    """
     candidates = []
     for rule_fn in RECOMMENDATION_RULES:
         result = rule_fn(**inputs)
         if result is not None:
-            priority, text = result
-            candidates.append((priority, text))
-
-    # Stable sort by priority
+            candidates.append(result)
     candidates.sort(key=lambda x: x[0])
-
-    # If we have fewer than 3 high-priority recommendations, the factory is
-    # in good shape and only needs tactical advice. In that case, return
-    # whatever we have. Otherwise cap at 7.
     return [text for _, text in candidates[:7]]
+
+
+# ============================================================================
+# CHART BUILDERS (Plotly)
+# ============================================================================
+
+def get_score_color(score):
+    """Map a 0-100 score to a color from the design palette."""
+    if score >= 80:
+        return COLORS["risk_low"]      # green
+    if score >= 65:
+        return COLORS["accent"]        # teal
+    if score >= 45:
+        return COLORS["secondary"]     # amber
+    return COLORS["risk_high"]         # red
+
+
+def build_readiness_gauge(score):
+    """
+    A semicircular gauge with the score number large in the center.
+    Color band reflects the verdict band.
+    """
+    color = get_score_color(score)
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        number={
+            "font": {"size": 56, "color": COLORS["primary"], "family": "system-ui"},
+            "suffix": "<span style='font-size:18px;color:#5a6478'> / 100</span>",
+        },
+        gauge={
+            "axis": {
+                "range": [0, 100],
+                "tickwidth": 1,
+                "tickcolor": COLORS["text_muted"],
+                "tickfont": {"size": 11, "color": COLORS["text_muted"]},
+                "tickvals": [0, 25, 50, 75, 100],
+            },
+            "bar": {"color": color, "thickness": 0.6},
+            "bgcolor": COLORS["panel_bg"],
+            "borderwidth": 0,
+            "steps": [
+                {"range": [0, 44],   "color": "#fbe9e9"},
+                {"range": [44, 64],  "color": "#fdf1de"},
+                {"range": [64, 79],  "color": "#dfeff0"},
+                {"range": [79, 100], "color": "#e2f0e6"},
+            ],
+            "threshold": {
+                "line": {"color": COLORS["primary"], "width": 3},
+                "thickness": 0.85,
+                "value": score,
+            },
+        },
+        domain={"x": [0, 1], "y": [0, 1]},
+    ))
+
+    fig.update_layout(
+        height=260,
+        margin=dict(l=20, r=20, t=20, b=20),
+        paper_bgcolor="white",
+        font={"family": "system-ui", "color": COLORS["text_primary"]},
+    )
+    return fig
+
+
+def build_subscore_ladder(process, organizational, regulatory, technical):
+    """
+    A horizontal lollipop chart showing where each category sits on 0-100.
+    Looks like a strategy report, not a generic bar chart.
+    """
+    categories = ["Process", "Organizational", "Regulatory", "Technical"]
+    weights = ["30%", "30%", "25%", "15%"]
+    scores = [process, organizational, regulatory, technical]
+    labels = [f"{c}  ·  {w} weight" for c, w in zip(categories, weights)]
+    colors = [get_score_color(s) for s in scores]
+
+    fig = go.Figure()
+
+    # Background grid bars (light gray, full 100)
+    fig.add_trace(go.Bar(
+        y=labels,
+        x=[100] * 4,
+        orientation="h",
+        marker={"color": COLORS["panel_bg"]},
+        hoverinfo="skip",
+        showlegend=False,
+        width=0.5,
+    ))
+
+    # Score bars
+    fig.add_trace(go.Bar(
+        y=labels,
+        x=scores,
+        orientation="h",
+        marker={"color": colors},
+        text=[f"<b>{s:.0f}</b>" for s in scores],
+        textposition="outside",
+        textfont={"size": 14, "color": COLORS["primary"]},
+        hovertemplate="<b>%{y}</b><br>Score: %{x:.1f}/100<extra></extra>",
+        showlegend=False,
+        width=0.4,
+    ))
+
+    fig.update_layout(
+        barmode="overlay",
+        height=260,
+        margin=dict(l=30, r=60, t=10, b=20),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        xaxis={
+            "range": [0, 110],
+            "showgrid": False,
+            "zeroline": False,
+            "showticklabels": True,
+            "tickvals": [0, 25, 50, 75, 100],
+            "tickfont": {"size": 11, "color": COLORS["text_muted"]},
+        },
+        yaxis={
+            "showgrid": False,
+            "tickfont": {"size": 13, "color": COLORS["primary"]},
+            "autorange": "reversed",
+        },
+        font={"family": "system-ui"},
+    )
+    return fig
 
 
 # ============================================================================
@@ -705,29 +868,61 @@ def process_form(
     )
 
     common_inputs = dict(
-        num_lines=num_lines,
-        num_facilities=num_facilities,
-        current_method=current_method,
-        clearance_duration=clearance_duration,
+        num_lines=num_lines, num_facilities=num_facilities,
+        current_method=current_method, clearance_duration=clearance_duration,
         deviation_frequency=deviation_frequency,
-        mes_system=mes_system,
-        ebr_system=ebr_system,
-        equipment_age=equipment_age,
-        inspection_outcome=inspection_outcome,
-        validation_maturity=validation_maturity,
-        operator_familiarity=operator_familiarity,
-        prior_attempt=prior_attempt,
+        mes_system=mes_system, ebr_system=ebr_system, equipment_age=equipment_age,
+        inspection_outcome=inspection_outcome, validation_maturity=validation_maturity,
+        operator_familiarity=operator_familiarity, prior_attempt=prior_attempt,
     )
 
     risks = compute_risk_heatmap(**common_inputs)
     recommendations = compute_recommendations(**common_inputs)
 
     payback_text = (
-        f"**{roi['payback_months']:.1f} months**"
+        f"{roi['payback_months']:.1f} months"
         if roi["payback_months"] is not None
-        else "Not applicable (no projected savings)"
+        else "N/A"
     )
 
+    # ----- Build the visuals -----
+    gauge_fig = build_readiness_gauge(score["total"])
+    ladder_fig = build_subscore_ladder(
+        score["process"], score["organizational"],
+        score["regulatory"], score["technical"],
+    )
+
+    # ----- Headline card (HTML) -----
+    headline_html = f"""
+<div id="headline-card">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:32px;flex-wrap:wrap;">
+    <div>
+      <div style="font-size:13px;color:{COLORS['text_muted']};text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:6px;">
+        Readiness Verdict
+      </div>
+      <div style="font-size:28px;font-weight:700;color:{COLORS['primary']};line-height:1.2;margin-bottom:4px;">
+        {score['verdict_label']}
+      </div>
+      <div style="font-size:14px;color:{COLORS['text_muted']};max-width:560px;line-height:1.5;">
+        {score['verdict_message']}
+      </div>
+    </div>
+    <div style="text-align:right;border-left:1px solid {COLORS['border']};padding-left:32px;">
+      <div style="font-size:12px;color:{COLORS['text_muted']};text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:4px;">
+        Projected Payback
+      </div>
+      <div style="font-size:28px;font-weight:700;color:{COLORS['accent']};line-height:1.1;">
+        {payback_text}
+      </div>
+      <div style="font-size:12px;color:{COLORS['text_muted']};margin-top:6px;">
+        Estimated annual savings: <b>{_fmt_money(roi['annual_savings'])}</b>
+      </div>
+    </div>
+  </div>
+</div>
+"""
+
+    # ----- ROI + risks + recommendations (still markdown for now — visuals in 5B/5C) -----
     risk_table_rows = "\n".join(
         f"| {name} | {RATING_ICON[rating]} | {explanation} |"
         for name, rating, explanation in risks
@@ -737,40 +932,16 @@ def process_form(
     med_count  = sum(1 for _, r, _ in risks if r == "Medium")
     low_count  = sum(1 for _, r, _ in risks if r == "Low")
 
-    # Build recommendation list
     if recommendations:
-        rec_block = "\n\n".join(
-            f"{i+1}. {text}"
-            for i, text in enumerate(recommendations)
-        )
+        rec_block = "\n\n".join(f"{i+1}. {text}" for i, text in enumerate(recommendations))
     else:
         rec_block = (
             "**No critical remediation needed.** Your readiness score and "
-            "risk profile suggest you can proceed directly to rollout planning. "
-            "Standard project hygiene applies: secure budget, set milestones, "
-            "and define success metrics before kickoff."
+            "risk profile suggest you can proceed directly to rollout planning."
         )
 
-    summary = f"""
-## Readiness Assessment
-
-### Overall Readiness Score: **{score['total']} / 100**
-
-### Verdict: **{score['verdict_label']}**
-{score['verdict_message']}
-
----
-
-### Sub-score Breakdown
-
-| Category | Weight | Score |
-|---|---|---|
-| Process readiness | 30% | **{score['process']}** / 100 |
-| Organizational readiness | 30% | **{score['organizational']}** / 100 |
-| Regulatory readiness | 25% | **{score['regulatory']}** / 100 |
-| Technical readiness | 15% | **{score['technical']}** / 100 |
-
----
+    details_md = f"""
+<div class="results-section">
 
 ## Financial Projection (ROI)
 
@@ -781,17 +952,19 @@ def process_form(
 | Projected post-rollout annual cost | **{_fmt_money(roi['post_rollout_cost'])}** |
 | **Annual savings** | **{_fmt_money(roi['annual_savings'])}** |
 | Estimated deployment cost | **{_fmt_money(roi['deployment_cost'])}** |
-| **Payback period** | {payback_text} |
+| **Payback period** | **{payback_text}** |
 
 ### How this was calculated
 
 - **Annual clearance events:** {num_lines} lines × {changeovers_per_week} changeovers/week × 48 production weeks/year
 - **Labor hours per event:** {DURATION_TO_HOURS[clearance_duration]} hours × 2 operators (operator + QA witness, per GMP)
-- **Labor rate used:** {_fmt_money(labor_rate)}/hour (fully-loaded — adjustable in Advanced)
+- **Labor rate used:** {_fmt_money(labor_rate)}/hour fully-loaded
 - **Time savings applied:** {time_savings_pct}% (Catalyx publishes 85%; default conservatively halved)
 - **Deployment cost:** {_fmt_money(first_line_cost)} per first line across {num_facilities} facilities, plus {_fmt_money(additional_line_cost)} per additional line
 
----
+</div>
+
+<div class="results-section">
 
 ## Risk Heatmap
 
@@ -801,55 +974,42 @@ def process_form(
 |---|---|---|
 {risk_table_rows}
 
----
+</div>
+
+<div class="results-section">
 
 ## Next-Steps Recommendation
 
-Based on your inputs, these are the actions to take *before* committing to a
-full OpenLine rollout, ordered by priority:
+Actions to take *before* committing to a full OpenLine rollout, ordered by priority:
 
 {rec_block}
 
----
-
-*Phase 4 complete. The simulator now produces all four spec outputs: readiness
-score, ROI projection, risk heatmap, and tailored next-steps. Phase 5 will add
-visual charts (readiness gauge, ROI timeline, risk heatmap visual). Phase 6
-adds a downloadable PDF executive summary.*
+</div>
 """
-    return summary
+
+    return headline_html, gauge_fig, ladder_fig, details_md
 
 
 # ============================================================================
 # UI
 # ============================================================================
 
-INTRO_TEXT = """
-# OpenLine Readiness Simulator
-
-A free assessment tool that helps pharma manufacturing leaders evaluate whether
-their factories are ready to roll out AI-powered line clearance — *before*
-committing budget to a full deployment.
-
-**Why this exists:**
-Catalyx's own 2025 Line Clearance Benchmark Report shows that roughly half the
-pharma industry piloted digital line clearance tools in 2023, but by 2025 only
-**11% had actually rolled them out**. Most pilots succeed technically — and
-then stall before becoming production deployments.
-
-*Currently in development. Phase 4D — full assessment engine. Visual charts
-and PDF export coming in Phases 5 and 6.*
-
----
-
-### Instructions
-Answer the 15 questions below. All fields have sensible defaults — adjust
-those that apply to your situation. Optionally expand "Advanced assumptions"
-to override the financial inputs. Click **Submit** to see your full assessment.
+HEADER_HTML = f"""
+<div id="header-banner">
+  <h1>OpenLine Readiness Simulator</h1>
+  <p>An assessment tool for pharma manufacturing leaders. Estimate readiness to roll out AI-powered line clearance — before committing budget. Built on Catalyx's own 2025 industry benchmark research, which found that only 11% of factories that piloted digital line clearance in 2023 had rolled it out by 2025.</p>
+</div>
 """
 
-with gr.Blocks(title="OpenLine Readiness Simulator") as demo:
-    gr.Markdown(INTRO_TEXT)
+with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
+    gr.HTML(HEADER_HTML)
+
+    gr.Markdown(
+        "### Instructions  \n"
+        "Answer the 15 questions below. Sensible defaults are pre-filled — "
+        "adjust those that apply. Expand the *Advanced assumptions* section "
+        "to override the financial inputs. Click **Submit** for your full assessment."
+    )
 
     with gr.Accordion("Section 1: Factory Profile", open=True):
         num_lines = gr.Slider(label="Number of production lines in scope for rollout",
@@ -910,7 +1070,7 @@ with gr.Blocks(title="OpenLine Readiness Simulator") as demo:
 
     with gr.Accordion("Advanced assumptions (optional — override defaults)", open=False):
         gr.Markdown("These defaults come from publicly available industry data. "
-                    "Adjust any of them to reflect your own assumptions, then re-run.")
+                    "Adjust any of them to reflect your own assumptions.")
         labor_rate = gr.Slider(label="Fully-loaded operator labor rate (USD per hour)",
                                minimum=20, maximum=150,
                                value=DEFAULT_LABOR_RATE_USD_PER_HOUR, step=5)
@@ -924,8 +1084,14 @@ with gr.Blocks(title="OpenLine Readiness Simulator") as demo:
                                          minimum=20_000, maximum=150_000,
                                          value=DEFAULT_ADDITIONAL_LINE_COST_USD, step=5_000)
 
-    submit_btn = gr.Button("Submit", variant="primary", size="lg")
-    output = gr.Markdown()
+    submit_btn = gr.Button("Run Assessment", variant="primary", size="lg")
+
+    # ----- Results area (initially empty) -----
+    headline_out = gr.HTML()
+    with gr.Row():
+        gauge_out = gr.Plot(label="Readiness Score")
+        ladder_out = gr.Plot(label="Sub-score Breakdown")
+    details_out = gr.Markdown()
 
     submit_btn.click(
         fn=process_form,
@@ -937,7 +1103,7 @@ with gr.Blocks(title="OpenLine Readiness Simulator") as demo:
             operator_familiarity, prior_attempt,
             labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
         ],
-        outputs=output,
+        outputs=[headline_out, gauge_out, ladder_out, details_out],
     )
 
 
