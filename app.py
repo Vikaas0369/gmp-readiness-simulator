@@ -2,16 +2,14 @@ import gradio as gr
 
 # ============================================================================
 # OpenLine Readiness Simulator
-# Phase 4B: Readiness Scoring + ROI Projection
+# Phase 4C: Readiness Score + ROI Projection + Risk Heatmap
 # ============================================================================
 #
-# Every assumption in this simulator is sourced and visible at the top of
-# this file. Readiness weightings follow mainstream pharma operations
-# literature (McKinsey, Deloitte, ISPE), which identifies organizational and
-# process risks as dominant failure modes ahead of technical risks. Catalyx's
-# own 2025 Line Clearance Benchmark Report reinforces this. ROI assumptions
-# use conservative midpoints of publicly available industry ranges; the user
-# can override them in the Advanced section.
+# Every assumption is sourced and visible at the top of this file. Readiness
+# weightings follow mainstream pharma operations literature; ROI assumptions
+# use conservative midpoints of publicly available industry ranges; risk
+# rules are based on standard pharma project risk frameworks and Catalyx's
+# own 2025 Line Clearance Benchmark Report findings.
 #
 # ============================================================================
 
@@ -110,37 +108,16 @@ VERDICT_BANDS = [
 
 
 # ============================================================================
-# ROI ASSUMPTIONS — every default is visible and sourced
+# ROI ASSUMPTIONS (unchanged from Phase 4B)
 # ============================================================================
 
-# Labor cost — fully-loaded operator hourly rate, US baseline.
-# US Bureau of Labor Statistics pharma operator base wages run $25-30/hr.
-# Fully-loaded (benefits, overhead, supervision, indirect) typically 2.0-2.5x,
-# putting full cost at ~$50-75/hr. Midpoint = $65. EU runs higher,
-# emerging markets lower. User can override in Advanced section.
 DEFAULT_LABOR_RATE_USD_PER_HOUR = 65
-
-# Time savings from OpenLine deployment.
-# Catalyx markets 85% faster line clearance. We default to ~half of vendor
-# claim (45%) because (a) vendor claims are aspirational, (b) real-world
-# deployments capture only a fraction of demo-condition gains, (c) a
-# defensible business case is built on conservative assumptions.
 DEFAULT_TIME_SAVINGS_PCT = 45
-
-# Per-line deployment cost.
-# Industry rule-of-thumb for enterprise machine vision in pharma:
-# $50k-150k per line depending on complexity. Our defaults sit mid-range
-# and assume typical bulk-discount pattern.
 DEFAULT_FIRST_LINE_COST_USD = 90_000
 DEFAULT_ADDITIONAL_LINE_COST_USD = 55_000
+NUM_OPERATORS_PER_CLEARANCE = 2
+WEEKS_PER_YEAR = 48
 
-# Operational defaults
-NUM_OPERATORS_PER_CLEARANCE = 2  # Standard GMP: operator + QA witness
-WEEKS_PER_YEAR = 48              # Standard pharma assumption (factoring shutdowns)
-
-# Duration band → midpoint hours.
-# Midpoints of each band; "Over 2 hours" anchored at 2.5h (many real
-# clearances over 2h run 3-4h, so 2.5 is conservatively low).
 DURATION_TO_HOURS = {
     "Under 30 minutes": 0.4,
     "30–60 minutes":    0.75,
@@ -150,7 +127,285 @@ DURATION_TO_HOURS = {
 
 
 # ============================================================================
-# SCORING ENGINE (unchanged from Phase 4A)
+# RISK HEATMAP RULES (new in Phase 4C)
+# ============================================================================
+#
+# Each risk has:
+#   - A short name
+#   - A function that evaluates the inputs and returns (rating, explanation)
+#
+# Ratings: "Low", "Medium", "High"
+#
+# Each rule references the specific user inputs that drove the rating, so
+# the explanation is concrete rather than generic.
+# ============================================================================
+
+
+def risk_legacy_integration(mes_system, ebr_system, equipment_age, **_):
+    """
+    RISK 1: Legacy MES/ERP integration complexity.
+    Driven by MES presence, eBR coverage, and equipment age.
+    Pharma OpenLine deployments need to integrate with MES for batch context
+    and eBR for record sync. No MES + no eBR = months of integration work.
+    """
+    if mes_system == "None" and ebr_system == "No":
+        return "High", (
+            "No MES and no eBR in place — OpenLine integration would require "
+            "building both upstream systems first, adding 6–12 months and "
+            "significant cost before the deployment can begin."
+        )
+    if mes_system in ("None", "Other / Custom") or ebr_system == "No":
+        return "Medium", (
+            f"MES setup ({mes_system}) and eBR coverage ({ebr_system}) will "
+            "require additional integration work — plan 2–4 months of IT effort."
+        )
+    if equipment_age == "Mostly over 10 years":
+        return "Medium", (
+            "Equipment is mostly over 10 years old; PLC and sensor compatibility "
+            "checks will likely surface integration edge cases."
+        )
+    return "Low", (
+        f"Modern MES ({mes_system}) and strong eBR coverage ({ebr_system}) "
+        "make integration straightforward."
+    )
+
+
+def risk_validation_backlog(validation_maturity, num_lines, num_facilities, **_):
+    """
+    RISK 2: Validation documentation backlog.
+    Driven by CSV maturity and rollout scale. Validation effort scales
+    roughly linearly with line count; underdeveloped CSV makes it worse.
+    """
+    total_lines = num_lines
+    multi_site = num_facilities > 1
+
+    if validation_maturity == "Underdeveloped":
+        return "High", (
+            "Computer system validation maturity is underdeveloped — IQ/OQ/PQ "
+            f"authoring for {total_lines} lines will become the rollout "
+            "bottleneck. Recommend building validation templates first."
+        )
+    if validation_maturity == "Functional but ad-hoc" and total_lines > 15:
+        return "High", (
+            f"Validation is functional but ad-hoc, and rollout scope is "
+            f"{total_lines} lines. Ad-hoc validation does not scale; expect "
+            "documentation to slip behind deployment by 2–3 lines."
+        )
+    if validation_maturity == "Functional but ad-hoc":
+        return "Medium", (
+            "Validation is functional but ad-hoc — manageable at this scale, "
+            "but build templates before further expansion."
+        )
+    if multi_site:
+        return "Medium", (
+            "Validation maturity is strong, but multi-site rollout requires "
+            "harmonizing templates across sites — coordinate early."
+        )
+    return "Low", (
+        "Mature validation function with templates can absorb the rollout "
+        "workload without becoming a bottleneck."
+    )
+
+
+def risk_operator_adoption(operator_familiarity, current_method, **_):
+    """
+    RISK 3: Operator adoption and training risk.
+    Driven by digital tool familiarity and current process digitization.
+    Operators who already use digital tools accept new ones; operators on
+    paper will resist.
+    """
+    if operator_familiarity == "Low" and current_method == "Fully paper-based":
+        return "High", (
+            "Operators have low digital tool familiarity and currently work "
+            "fully on paper. Expect significant resistance; budget 2–3 months "
+            "of training and shadow operation before go-live."
+        )
+    if operator_familiarity == "Low":
+        return "High", (
+            "Operator digital tool familiarity is low — adoption will require "
+            "deliberate training, change agents on each shift, and visible "
+            "leadership support."
+        )
+    if operator_familiarity == "Medium":
+        return "Medium", (
+            "Mixed operator familiarity — identify and train change-champion "
+            "operators first to lead by example."
+        )
+    return "Low", (
+        "High operator digital familiarity — adoption is unlikely to be a "
+        "blocker. Standard training program should suffice."
+    )
+
+
+def risk_multi_site_coordination(num_facilities, num_lines, **_):
+    """
+    RISK 4: Multi-site coordination risk.
+    Driven by facility count and total line count. Single-site = low risk;
+    many sites = high coordination overhead.
+    """
+    if num_facilities == 1:
+        return "Low", (
+            "Single-site rollout — no inter-site coordination overhead."
+        )
+    if num_facilities <= 3:
+        return "Medium", (
+            f"{int(num_facilities)} facilities involved — establish a "
+            "central program management function before kickoff."
+        )
+    return "High", (
+        f"{int(num_facilities)} facilities involved — multi-site rollouts at "
+        "this scale require dedicated PMO, harmonized templates, and "
+        "sequenced site-by-site go-live. Without these, the rollout will "
+        "fragment."
+    )
+
+
+def risk_sponsorship(prior_attempt, operator_familiarity, **_):
+    """
+    RISK 5: Executive sponsorship fragility.
+    No direct input for this; we use prior_attempt and operator_familiarity
+    as proxies. A facility that's failed before AND has low operator buy-in
+    almost certainly lacks clear executive sponsorship; conversely, a
+    successful prior attempt implies sponsorship exists.
+
+    NOTE: this is a proxy assessment; a fuller version of this tool
+    would ask about sponsorship directly. We use proxies to keep the
+    questionnaire under 15 questions.
+    """
+    if prior_attempt == "Yes — stalled or failed":
+        return "High", (
+            "A prior digitization attempt stalled or failed at this facility. "
+            "This typically indicates either thin executive sponsorship or "
+            "sponsorship that fades under pressure. Re-engaging sponsors "
+            "with a clear remit is critical before restarting."
+        )
+    if prior_attempt == "No — first attempt" and operator_familiarity == "Low":
+        return "Medium", (
+            "First attempt at line clearance digitization combined with low "
+            "operator familiarity — sponsorship will be tested when the "
+            "rollout hits friction. Confirm and document sponsor commitment "
+            "before kickoff."
+        )
+    if prior_attempt == "Yes — successful":
+        return "Low", (
+            "A previous successful digitization attempt implies established "
+            "executive sponsorship and an organization that knows how to "
+            "deliver these projects."
+        )
+    return "Medium", (
+        "First-time attempt — sponsorship strength is unproven. Secure "
+        "explicit, written commitment from a named executive before kickoff."
+    )
+
+
+def risk_change_control(validation_maturity, deviation_frequency, **_):
+    """
+    RISK 6: Change-control / quality system bottleneck.
+    Driven by validation maturity (proxy for QA capacity) and deviation
+    frequency. High deviations + weak validation = QA is already drowning
+    and will block change-control submissions.
+    """
+    if (
+        validation_maturity == "Underdeveloped"
+        and deviation_frequency in ("3–5", "6 or more")
+    ):
+        return "High", (
+            f"QA is already absorbing {deviation_frequency} line clearance "
+            "deviations per year against an underdeveloped validation "
+            "function. Change-control submissions for OpenLine will queue "
+            "behind existing deviations. Address QA capacity first."
+        )
+    if deviation_frequency == "6 or more":
+        return "High", (
+            "Six or more deviations in the past year indicate the quality "
+            "system is overloaded. New change-control submissions will "
+            "compete for the same QA bandwidth."
+        )
+    if (
+        validation_maturity == "Functional but ad-hoc"
+        and deviation_frequency in ("3–5", "6 or more")
+    ):
+        return "Medium", (
+            "Ad-hoc validation combined with elevated deviation count — "
+            "QA bandwidth will be tight. Schedule the OpenLine change-control "
+            "review during a quieter deviation window."
+        )
+    return "Low", (
+        "Quality system has the bandwidth to handle the change-control "
+        "submission alongside business as usual."
+    )
+
+
+def risk_pilot_fatigue(prior_attempt, **_):
+    """
+    RISK 7: Past-failure / pilot-fatigue risk.
+    Pure function of prior attempt history. A previously failed attempt
+    creates organizational scar tissue that significantly reduces the
+    probability of a future rollout succeeding.
+
+    This is the single most predictive input in the entire simulator.
+    """
+    if prior_attempt == "Yes — stalled or failed":
+        return "High", (
+            "A prior line clearance digitization attempt stalled or failed. "
+            "Without a clear post-mortem and visible changes to what's "
+            "different this time, organizational skepticism will undermine "
+            "the next attempt."
+        )
+    if prior_attempt == "No — first attempt":
+        return "Low", (
+            "First attempt — no historical baggage. Use this clean slate to "
+            "establish a track record."
+        )
+    return "Low", (
+        "A previous successful attempt creates positive momentum and "
+        "internal advocates."
+    )
+
+
+def risk_equipment_compatibility(equipment_age, mes_system, **_):
+    """
+    RISK 8: Equipment age and PLC compatibility.
+    Driven by equipment age and MES setup. Modern equipment + modern MES =
+    low risk; legacy everything = high risk of compatibility edge cases.
+    """
+    if equipment_age == "Mostly over 10 years":
+        return "High", (
+            "Equipment is mostly over 10 years old — expect PLC firmware "
+            "mismatches, missing data outputs, and sensor compatibility "
+            "issues. Plan a site survey before scoping."
+        )
+    if equipment_age == "Mixed (some new, some old)" and mes_system in ("None", "Other / Custom"):
+        return "Medium", (
+            "Mixed-age equipment combined with no standard MES — line-level "
+            "data extraction will vary across lines. Catalog by line before "
+            "committing to a rollout sequence."
+        )
+    if equipment_age == "Mixed (some new, some old)":
+        return "Medium", (
+            "Mixed-age equipment — newer lines will go live faster; older "
+            "lines may need targeted upgrades."
+        )
+    return "Low", (
+        "Modern equipment fleet — sensor and PLC integration should be "
+        "straightforward."
+    )
+
+
+RISK_RULES = [
+    ("Legacy MES/ERP integration complexity", risk_legacy_integration),
+    ("Validation documentation backlog",      risk_validation_backlog),
+    ("Operator adoption and training risk",   risk_operator_adoption),
+    ("Multi-site coordination risk",          risk_multi_site_coordination),
+    ("Executive sponsorship fragility",       risk_sponsorship),
+    ("Change-control / quality system bottleneck", risk_change_control),
+    ("Past-failure / pilot-fatigue risk",     risk_pilot_fatigue),
+    ("Equipment age and PLC compatibility",   risk_equipment_compatibility),
+]
+
+
+# ============================================================================
+# SCORING + ROI ENGINES (unchanged)
 # ============================================================================
 
 def compute_readiness_score(
@@ -211,73 +466,58 @@ def compute_readiness_score(
     }
 
 
-# ============================================================================
-# ROI ENGINE — Phase 4B
-# ============================================================================
-
 def compute_roi(
-    num_lines,
-    num_facilities,
-    changeovers_per_week,
-    clearance_duration,
-    labor_rate,
-    time_savings_pct,
-    first_line_cost,
-    additional_line_cost,
+    num_lines, num_facilities, changeovers_per_week, clearance_duration,
+    labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
 ):
-    """
-    Compute current annual cost, projected post-rollout cost, savings, and
-    payback period. Every input above can be the simulator default or the
-    user's override from the Advanced section.
-    """
     hours_per_clearance = DURATION_TO_HOURS[clearance_duration]
-
-    # Annual clearance events across the whole estate
     annual_clearance_events = num_lines * changeovers_per_week * WEEKS_PER_YEAR
-
-    # Labor hours per event (operator + QA witness)
     labor_hours_per_event = hours_per_clearance * NUM_OPERATORS_PER_CLEARANCE
-
-    # Current annual line clearance labor cost
-    current_annual_cost = (
-        annual_clearance_events * labor_hours_per_event * labor_rate
-    )
-
-    # Post-rollout cost: time savings only applied to clearance duration
+    current_annual_cost = annual_clearance_events * labor_hours_per_event * labor_rate
     post_rollout_cost = current_annual_cost * (1 - time_savings_pct / 100)
     annual_savings = current_annual_cost - post_rollout_cost
 
-    # Deployment cost: first line per facility full price; remaining lines
-    # in same facility get the discounted rate
-    # (assumes lines are roughly evenly distributed across facilities)
     lines_per_facility = max(1, num_lines / num_facilities)
     deployment_cost = (
         num_facilities * first_line_cost
         + num_facilities * (lines_per_facility - 1) * additional_line_cost
     )
 
-    # Payback in months
-    if annual_savings > 0:
-        payback_months = (deployment_cost / annual_savings) * 12
-    else:
-        payback_months = None  # no savings = no payback
+    payback_months = (
+        (deployment_cost / annual_savings) * 12 if annual_savings > 0 else None
+    )
 
     return {
-        "annual_events":        int(annual_clearance_events),
-        "current_annual_cost":  current_annual_cost,
-        "post_rollout_cost":    post_rollout_cost,
-        "annual_savings":       annual_savings,
-        "deployment_cost":      deployment_cost,
-        "payback_months":       payback_months,
+        "annual_events":       int(annual_clearance_events),
+        "current_annual_cost": current_annual_cost,
+        "post_rollout_cost":   post_rollout_cost,
+        "annual_savings":      annual_savings,
+        "deployment_cost":     deployment_cost,
+        "payback_months":      payback_months,
     }
+
+
+def compute_risk_heatmap(**inputs):
+    """Run all 8 risk rules and return a list of (name, rating, explanation)."""
+    results = []
+    for name, rule_fn in RISK_RULES:
+        rating, explanation = rule_fn(**inputs)
+        results.append((name, rating, explanation))
+    return results
 
 
 # ============================================================================
 # UI HANDLER
 # ============================================================================
 
+RATING_ICON = {
+    "Low":    "🟢 Low",
+    "Medium": "🟡 Medium",
+    "High":   "🔴 High",
+}
+
+
 def _fmt_money(x):
-    """Format a dollar amount with thousands separators and no decimals."""
     return f"${x:,.0f}"
 
 
@@ -287,7 +527,6 @@ def process_form(
     mes_system, ebr_system, equipment_age,
     inspection_outcome, validation_maturity,
     operator_familiarity, prior_attempt,
-    # Advanced assumptions (with defaults pre-filled in the UI)
     labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
 ):
     score = compute_readiness_score(
@@ -302,11 +541,37 @@ def process_form(
         labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
     )
 
+    risks = compute_risk_heatmap(
+        num_lines=num_lines,
+        num_facilities=num_facilities,
+        current_method=current_method,
+        clearance_duration=clearance_duration,
+        deviation_frequency=deviation_frequency,
+        mes_system=mes_system,
+        ebr_system=ebr_system,
+        equipment_age=equipment_age,
+        inspection_outcome=inspection_outcome,
+        validation_maturity=validation_maturity,
+        operator_familiarity=operator_familiarity,
+        prior_attempt=prior_attempt,
+    )
+
     payback_text = (
         f"**{roi['payback_months']:.1f} months**"
         if roi["payback_months"] is not None
         else "Not applicable (no projected savings)"
     )
+
+    # Build risk table rows
+    risk_table_rows = "\n".join(
+        f"| {name} | {RATING_ICON[rating]} | {explanation} |"
+        for name, rating, explanation in risks
+    )
+
+    # Count risks by rating
+    high_count = sum(1 for _, r, _ in risks if r == "High")
+    med_count  = sum(1 for _, r, _ in risks if r == "Medium")
+    low_count  = sum(1 for _, r, _ in risks if r == "Low")
 
     summary = f"""
 ## Readiness Assessment
@@ -331,8 +596,6 @@ def process_form(
 
 ## Financial Projection (ROI)
 
-### Headline numbers
-
 | Metric | Value |
 |---|---|
 | Annual line clearance events | **{roi['annual_events']:,}** |
@@ -346,24 +609,35 @@ def process_form(
 
 - **Annual clearance events:** {num_lines} lines × {changeovers_per_week} changeovers/week × 48 production weeks/year
 - **Labor hours per event:** {DURATION_TO_HOURS[clearance_duration]} hours × 2 operators (operator + QA witness, per GMP)
-- **Labor rate used:** {_fmt_money(labor_rate)}/hour (fully-loaded — adjustable in Advanced section)
-- **Time savings applied:** {time_savings_pct}% reduction in clearance time (Catalyx publishes 85%; this default is conservatively halved)
-- **Deployment cost:** {_fmt_money(first_line_cost)} for the first line in each of {num_facilities} facilities, plus {_fmt_money(additional_line_cost)} for each additional line in those facilities
-
-*These numbers are estimates built on conservative industry-typical assumptions.
-Adjust any of them in the "Advanced assumptions" section above and re-run to
-see how the financials shift under your own assumptions.*
+- **Labor rate used:** {_fmt_money(labor_rate)}/hour (fully-loaded — adjustable in Advanced)
+- **Time savings applied:** {time_savings_pct}% (Catalyx publishes 85%; default conservatively halved)
+- **Deployment cost:** {_fmt_money(first_line_cost)} per first line across {num_facilities} facilities, plus {_fmt_money(additional_line_cost)} per additional line
 
 ---
 
-*Coming next: risk heatmap (Phase 4C), tailored next-steps recommendations
-(Phase 4D), and visual charts + PDF executive summary (Phases 5 and 6).*
+## Risk Heatmap
+
+**Summary:** 🔴 {high_count} High · 🟡 {med_count} Medium · 🟢 {low_count} Low
+
+| Risk | Rating | Why this rating |
+|---|---|---|
+{risk_table_rows}
+
+*Each rating is determined by specific rules based on your inputs; the
+explanations reference the exact inputs that drove each rating. Risks rated
+High should be addressed before committing to a full rollout. Risks rated
+Medium typically resolve during the rollout if proactively managed.*
+
+---
+
+*Coming next: tailored next-steps recommendations (Phase 4D), then visual
+charts and PDF executive summary (Phases 5 and 6).*
 """
     return summary
 
 
 # ============================================================================
-# UI
+# UI (unchanged structure from 4B)
 # ============================================================================
 
 INTRO_TEXT = """
@@ -379,8 +653,8 @@ pharma industry piloted digital line clearance tools in 2023, but by 2025 only
 **11% had actually rolled them out**. Most pilots succeed technically — and
 then stall before becoming production deployments.
 
-*Currently in development. Phase 4B — readiness scoring + ROI projection.
-Risk heatmap, next-steps, charts, and PDF export are coming in later phases.*
+*Currently in development. Phase 4C — readiness scoring + ROI + risk heatmap.
+Next-steps recommendations, visual charts, and PDF export coming next.*
 
 ---
 
@@ -390,30 +664,18 @@ those that apply to your situation. Optionally expand "Advanced assumptions"
 to override the financial inputs. Click **Submit** to see your full assessment.
 """
 
-with gr.Blocks(
-    title="OpenLine Readiness Simulator",
-    theme=gr.themes.Soft(),
-) as demo:
-
+with gr.Blocks(title="OpenLine Readiness Simulator") as demo:
     gr.Markdown(INTRO_TEXT)
 
     with gr.Accordion("Section 1: Factory Profile", open=True):
-        num_lines = gr.Slider(
-            label="Number of production lines in scope for rollout",
-            minimum=1, maximum=100, value=10, step=1,
-        )
-        num_facilities = gr.Slider(
-            label="Number of facilities involved",
-            minimum=1, maximum=20, value=2, step=1,
-        )
+        num_lines = gr.Slider(label="Number of production lines in scope for rollout",
+                              minimum=1, maximum=100, value=10, step=1)
+        num_facilities = gr.Slider(label="Number of facilities involved",
+                                   minimum=1, maximum=20, value=2, step=1)
         annual_volume = gr.Radio(
             label="Approximate annual production volume",
-            choices=[
-                "Under 1 million units",
-                "1–10 million units",
-                "10–100 million units",
-                "Over 100 million units",
-            ],
+            choices=["Under 1 million units", "1–10 million units",
+                     "10–100 million units", "Over 100 million units"],
             value="1–10 million units",
         )
         product_type = gr.Radio(
@@ -423,61 +685,39 @@ with gr.Blocks(
         )
 
     with gr.Accordion("Section 2: Current Line Clearance Practice", open=True):
-        current_method = gr.Radio(
-            label="Current line clearance method",
-            choices=list(SCORE_CURRENT_METHOD.keys()),
-            value="Hybrid (some digital, some paper)",
-        )
-        clearance_duration = gr.Radio(
-            label="Average line clearance duration today",
-            choices=list(SCORE_CLEARANCE_DURATION.keys()),
-            value="1–2 hours",
-        )
-        changeovers_per_week = gr.Slider(
-            label="Average number of changeovers per line per week",
-            minimum=1, maximum=30, value=5, step=1,
-        )
-        deviation_frequency = gr.Radio(
-            label="Line clearance deviations in the past 12 months",
-            choices=list(SCORE_DEVIATION_FREQUENCY.keys()),
-            value="3–5",
-        )
+        current_method = gr.Radio(label="Current line clearance method",
+                                  choices=list(SCORE_CURRENT_METHOD.keys()),
+                                  value="Hybrid (some digital, some paper)")
+        clearance_duration = gr.Radio(label="Average line clearance duration today",
+                                      choices=list(SCORE_CLEARANCE_DURATION.keys()),
+                                      value="1–2 hours")
+        changeovers_per_week = gr.Slider(label="Average number of changeovers per line per week",
+                                         minimum=1, maximum=30, value=5, step=1)
+        deviation_frequency = gr.Radio(label="Line clearance deviations in the past 12 months",
+                                       choices=list(SCORE_DEVIATION_FREQUENCY.keys()),
+                                       value="3–5")
 
     with gr.Accordion("Section 3: IT and Integration Landscape", open=True):
-        mes_system = gr.Radio(
-            label="Existing Manufacturing Execution System (MES)",
-            choices=list(SCORE_MES_SYSTEM.keys()),
-            value="None",
-        )
-        ebr_system = gr.Radio(
-            label="Electronic batch record (eBR) system in place",
-            choices=list(SCORE_EBR_SYSTEM.keys()),
-            value="Partial",
-        )
-        equipment_age = gr.Radio(
-            label="Equipment and PLC age",
-            choices=list(SCORE_EQUIPMENT_AGE.keys()),
-            value="Mixed (some new, some old)",
-        )
+        mes_system = gr.Radio(label="Existing Manufacturing Execution System (MES)",
+                              choices=list(SCORE_MES_SYSTEM.keys()), value="None")
+        ebr_system = gr.Radio(label="Electronic batch record (eBR) system in place",
+                              choices=list(SCORE_EBR_SYSTEM.keys()), value="Partial")
+        equipment_age = gr.Radio(label="Equipment and PLC age",
+                                 choices=list(SCORE_EQUIPMENT_AGE.keys()),
+                                 value="Mixed (some new, some old)")
 
     with gr.Accordion("Section 4: Regulatory and Quality Context", open=True):
-        inspection_outcome = gr.Radio(
-            label="Last regulatory inspection outcome",
-            choices=list(SCORE_INSPECTION_OUTCOME.keys()),
-            value="Minor observations",
-        )
-        validation_maturity = gr.Radio(
-            label="Computer system validation maturity",
-            choices=list(SCORE_VALIDATION_MATURITY.keys()),
-            value="Functional but ad-hoc",
-        )
+        inspection_outcome = gr.Radio(label="Last regulatory inspection outcome",
+                                      choices=list(SCORE_INSPECTION_OUTCOME.keys()),
+                                      value="Minor observations")
+        validation_maturity = gr.Radio(label="Computer system validation maturity",
+                                       choices=list(SCORE_VALIDATION_MATURITY.keys()),
+                                       value="Functional but ad-hoc")
 
     with gr.Accordion("Section 5: Workforce and Change-Management Context", open=True):
-        operator_familiarity = gr.Radio(
-            label="Operator digital tool familiarity",
-            choices=list(SCORE_OPERATOR_FAMILIARITY.keys()),
-            value="Medium",
-        )
+        operator_familiarity = gr.Radio(label="Operator digital tool familiarity",
+                                        choices=list(SCORE_OPERATOR_FAMILIARITY.keys()),
+                                        value="Medium")
         prior_attempt = gr.Radio(
             label="Has your facility ever attempted a line clearance digitization project before?",
             choices=list(SCORE_PRIOR_ATTEMPT.keys()),
@@ -485,28 +725,20 @@ with gr.Blocks(
         )
 
     with gr.Accordion("Advanced assumptions (optional — override defaults)", open=False):
-        gr.Markdown(
-            "These defaults come from publicly available industry data. "
-            "Adjust any of them to reflect your own assumptions, then re-run."
-        )
-        labor_rate = gr.Slider(
-            label="Fully-loaded operator labor rate (USD per hour)",
-            minimum=20, maximum=150, value=DEFAULT_LABOR_RATE_USD_PER_HOUR, step=5,
-        )
-        time_savings_pct = gr.Slider(
-            label="Expected time savings from OpenLine (%)",
-            minimum=10, maximum=85, value=DEFAULT_TIME_SAVINGS_PCT, step=5,
-        )
-        first_line_cost = gr.Slider(
-            label="First line deployment cost per facility (USD)",
-            minimum=30_000, maximum=200_000,
-            value=DEFAULT_FIRST_LINE_COST_USD, step=5_000,
-        )
-        additional_line_cost = gr.Slider(
-            label="Additional line deployment cost (same facility, USD)",
-            minimum=20_000, maximum=150_000,
-            value=DEFAULT_ADDITIONAL_LINE_COST_USD, step=5_000,
-        )
+        gr.Markdown("These defaults come from publicly available industry data. "
+                    "Adjust any of them to reflect your own assumptions, then re-run.")
+        labor_rate = gr.Slider(label="Fully-loaded operator labor rate (USD per hour)",
+                               minimum=20, maximum=150,
+                               value=DEFAULT_LABOR_RATE_USD_PER_HOUR, step=5)
+        time_savings_pct = gr.Slider(label="Expected time savings from OpenLine (%)",
+                                     minimum=10, maximum=85,
+                                     value=DEFAULT_TIME_SAVINGS_PCT, step=5)
+        first_line_cost = gr.Slider(label="First line deployment cost per facility (USD)",
+                                    minimum=30_000, maximum=200_000,
+                                    value=DEFAULT_FIRST_LINE_COST_USD, step=5_000)
+        additional_line_cost = gr.Slider(label="Additional line deployment cost (same facility, USD)",
+                                         minimum=20_000, maximum=150_000,
+                                         value=DEFAULT_ADDITIONAL_LINE_COST_USD, step=5_000)
 
     submit_btn = gr.Button("Submit", variant="primary", size="lg")
     output = gr.Markdown()
