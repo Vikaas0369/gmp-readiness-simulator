@@ -2,20 +2,20 @@ import gradio as gr
 
 # ============================================================================
 # OpenLine Readiness Simulator
-# Phase 4C: Readiness Score + ROI Projection + Risk Heatmap
+# Phase 4D: Readiness Score + ROI + Risk Heatmap + Next-Steps Recommendations
 # ============================================================================
 #
 # Every assumption is sourced and visible at the top of this file. Readiness
 # weightings follow mainstream pharma operations literature; ROI assumptions
 # use conservative midpoints of publicly available industry ranges; risk
-# rules are based on standard pharma project risk frameworks and Catalyx's
-# own 2025 Line Clearance Benchmark Report findings.
+# rules and recommendations are based on standard pharma project remediation
+# sequences and Catalyx's own 2025 Line Clearance Benchmark Report.
 #
 # ============================================================================
 
 
 # ============================================================================
-# READINESS SCORING TABLES (unchanged from Phase 4A)
+# READINESS SCORING TABLES (unchanged)
 # ============================================================================
 
 WEIGHTS = {
@@ -108,7 +108,7 @@ VERDICT_BANDS = [
 
 
 # ============================================================================
-# ROI ASSUMPTIONS (unchanged from Phase 4B)
+# ROI ASSUMPTIONS (unchanged)
 # ============================================================================
 
 DEFAULT_LABOR_RATE_USD_PER_HOUR = 65
@@ -127,27 +127,10 @@ DURATION_TO_HOURS = {
 
 
 # ============================================================================
-# RISK HEATMAP RULES (new in Phase 4C)
+# RISK HEATMAP RULES (unchanged)
 # ============================================================================
-#
-# Each risk has:
-#   - A short name
-#   - A function that evaluates the inputs and returns (rating, explanation)
-#
-# Ratings: "Low", "Medium", "High"
-#
-# Each rule references the specific user inputs that drove the rating, so
-# the explanation is concrete rather than generic.
-# ============================================================================
-
 
 def risk_legacy_integration(mes_system, ebr_system, equipment_age, **_):
-    """
-    RISK 1: Legacy MES/ERP integration complexity.
-    Driven by MES presence, eBR coverage, and equipment age.
-    Pharma OpenLine deployments need to integrate with MES for batch context
-    and eBR for record sync. No MES + no eBR = months of integration work.
-    """
     if mes_system == "None" and ebr_system == "No":
         return "High", (
             "No MES and no eBR in place — OpenLine integration would require "
@@ -171,11 +154,6 @@ def risk_legacy_integration(mes_system, ebr_system, equipment_age, **_):
 
 
 def risk_validation_backlog(validation_maturity, num_lines, num_facilities, **_):
-    """
-    RISK 2: Validation documentation backlog.
-    Driven by CSV maturity and rollout scale. Validation effort scales
-    roughly linearly with line count; underdeveloped CSV makes it worse.
-    """
     total_lines = num_lines
     multi_site = num_facilities > 1
 
@@ -208,12 +186,6 @@ def risk_validation_backlog(validation_maturity, num_lines, num_facilities, **_)
 
 
 def risk_operator_adoption(operator_familiarity, current_method, **_):
-    """
-    RISK 3: Operator adoption and training risk.
-    Driven by digital tool familiarity and current process digitization.
-    Operators who already use digital tools accept new ones; operators on
-    paper will resist.
-    """
     if operator_familiarity == "Low" and current_method == "Fully paper-based":
         return "High", (
             "Operators have low digital tool familiarity and currently work "
@@ -238,15 +210,8 @@ def risk_operator_adoption(operator_familiarity, current_method, **_):
 
 
 def risk_multi_site_coordination(num_facilities, num_lines, **_):
-    """
-    RISK 4: Multi-site coordination risk.
-    Driven by facility count and total line count. Single-site = low risk;
-    many sites = high coordination overhead.
-    """
     if num_facilities == 1:
-        return "Low", (
-            "Single-site rollout — no inter-site coordination overhead."
-        )
+        return "Low", "Single-site rollout — no inter-site coordination overhead."
     if num_facilities <= 3:
         return "Medium", (
             f"{int(num_facilities)} facilities involved — establish a "
@@ -261,17 +226,6 @@ def risk_multi_site_coordination(num_facilities, num_lines, **_):
 
 
 def risk_sponsorship(prior_attempt, operator_familiarity, **_):
-    """
-    RISK 5: Executive sponsorship fragility.
-    No direct input for this; we use prior_attempt and operator_familiarity
-    as proxies. A facility that's failed before AND has low operator buy-in
-    almost certainly lacks clear executive sponsorship; conversely, a
-    successful prior attempt implies sponsorship exists.
-
-    NOTE: this is a proxy assessment; a fuller version of this tool
-    would ask about sponsorship directly. We use proxies to keep the
-    questionnaire under 15 questions.
-    """
     if prior_attempt == "Yes — stalled or failed":
         return "High", (
             "A prior digitization attempt stalled or failed at this facility. "
@@ -299,12 +253,6 @@ def risk_sponsorship(prior_attempt, operator_familiarity, **_):
 
 
 def risk_change_control(validation_maturity, deviation_frequency, **_):
-    """
-    RISK 6: Change-control / quality system bottleneck.
-    Driven by validation maturity (proxy for QA capacity) and deviation
-    frequency. High deviations + weak validation = QA is already drowning
-    and will block change-control submissions.
-    """
     if (
         validation_maturity == "Underdeveloped"
         and deviation_frequency in ("3–5", "6 or more")
@@ -337,14 +285,6 @@ def risk_change_control(validation_maturity, deviation_frequency, **_):
 
 
 def risk_pilot_fatigue(prior_attempt, **_):
-    """
-    RISK 7: Past-failure / pilot-fatigue risk.
-    Pure function of prior attempt history. A previously failed attempt
-    creates organizational scar tissue that significantly reduces the
-    probability of a future rollout succeeding.
-
-    This is the single most predictive input in the entire simulator.
-    """
     if prior_attempt == "Yes — stalled or failed":
         return "High", (
             "A prior line clearance digitization attempt stalled or failed. "
@@ -364,11 +304,6 @@ def risk_pilot_fatigue(prior_attempt, **_):
 
 
 def risk_equipment_compatibility(equipment_age, mes_system, **_):
-    """
-    RISK 8: Equipment age and PLC compatibility.
-    Driven by equipment age and MES setup. Modern equipment + modern MES =
-    low risk; legacy everything = high risk of compatibility edge cases.
-    """
     if equipment_age == "Mostly over 10 years":
         return "High", (
             "Equipment is mostly over 10 years old — expect PLC firmware "
@@ -405,7 +340,214 @@ RISK_RULES = [
 
 
 # ============================================================================
-# SCORING + ROI ENGINES (unchanged)
+# RECOMMENDATIONS LIBRARY (new in Phase 4D)
+# ============================================================================
+#
+# Each recommendation is a function that takes the inputs and the risk
+# results, and returns either None (don't recommend) or a string (do).
+#
+# Recommendations are then sorted by PRIORITY:
+#   1 = Regulatory blocker (must address before doing anything else)
+#   2 = Past-failure remediation (must address before restarting)
+#   3 = Foundational technical gap (must address before rollout)
+#   4 = Process / change-management improvement
+#   5 = Tactical / sequencing improvement
+#
+# The output to the user is the top 5–7 recommendations, sorted by priority.
+# ============================================================================
+
+
+def rec_regulatory_observations(inspection_outcome, **_):
+    if inspection_outcome == "Major observations":
+        return (
+            1,
+            "**Resolve outstanding regulatory observations first.** Adding "
+            "new validation scope while major inspection observations are "
+            "open creates regulatory exposure. Close the existing CAPA "
+            "actions before initiating any OpenLine work."
+        )
+    return None
+
+
+def rec_validation_capacity(validation_maturity, num_lines, **_):
+    if validation_maturity == "Underdeveloped":
+        return (
+            1,
+            f"**Build validation templates before scoping.** Validation "
+            f"maturity is underdeveloped, and you're targeting {num_lines} "
+            "lines. Without reusable IQ/OQ/PQ templates, the documentation "
+            "effort will consume your QA team. Invest in templates and "
+            "training before kickoff."
+        )
+    return None
+
+
+def rec_prior_attempt_postmortem(prior_attempt, **_):
+    if prior_attempt == "Yes — stalled or failed":
+        return (
+            2,
+            "**Conduct a post-mortem on the previous attempt before "
+            "restarting.** A prior stalled attempt creates organizational "
+            "skepticism. Identify what failed (sponsorship, tech, change "
+            "management, scope), document it, and explicitly state what's "
+            "different this time. Without this, the new attempt will face "
+            "the same skepticism."
+        )
+    return None
+
+
+def rec_sponsorship(prior_attempt, operator_familiarity, **_):
+    if prior_attempt == "Yes — stalled or failed":
+        return (
+            2,
+            "**Re-engage executive sponsorship with a documented remit.** "
+            "Given the prior failure, sponsor commitment must be explicit, "
+            "named, and documented — verbal endorsement won't survive the "
+            "first friction. Define decision rights and escalation paths "
+            "upfront."
+        )
+    if prior_attempt == "No — first attempt" and operator_familiarity == "Low":
+        return (
+            4,
+            "**Confirm and document executive sponsorship before kickoff.** "
+            "First attempts combined with low operator familiarity will "
+            "test sponsor commitment. Get written commitment from a named "
+            "executive with budget authority."
+        )
+    return None
+
+
+def rec_ebr_first(ebr_system, mes_system, **_):
+    if ebr_system == "No":
+        return (
+            3,
+            "**Establish electronic batch record coverage before OpenLine.** "
+            "Without eBR, OpenLine integration must build the batch-record "
+            "interface from scratch, which adds months and creates a single "
+            "point of failure. Implement at least partial eBR coverage first."
+        )
+    return None
+
+
+def rec_mes_strategy(mes_system, **_):
+    if mes_system == "None":
+        return (
+            3,
+            "**Define an MES strategy before scoping OpenLine.** With no "
+            "MES, OpenLine has nothing to receive batch context from or "
+            "send completion signals to. Choose whether to deploy a "
+            "pharma-grade MES (Werum, SAP, Rockwell) in parallel or to "
+            "scope OpenLine as a standalone solution with manual MES "
+            "interfaces."
+        )
+    return None
+
+
+def rec_qa_capacity(validation_maturity, deviation_frequency, **_):
+    if (
+        validation_maturity == "Underdeveloped"
+        and deviation_frequency in ("3–5", "6 or more")
+    ):
+        return (
+            1,
+            "**Address QA capacity before adding new change-control "
+            f"submissions.** You have {deviation_frequency} deviations per "
+            "year against an underdeveloped validation function. New "
+            "submissions will queue behind existing CAPAs. Either expand "
+            "QA capacity or sequence OpenLine behind the deviation backlog."
+        )
+    if deviation_frequency == "6 or more":
+        return (
+            4,
+            "**Run a deviation-reduction sprint before adding scope.** "
+            "Six or more deviations per year suggests the underlying "
+            "process is unstable. Stabilize first; otherwise OpenLine will "
+            "inherit the same instability post-deployment."
+        )
+    return None
+
+
+def rec_operator_training(operator_familiarity, current_method, **_):
+    if operator_familiarity == "Low" and current_method == "Fully paper-based":
+        return (
+            4,
+            "**Build operator readiness before go-live.** Operators moving "
+            "from fully paper-based to AI-assisted line clearance need "
+            "structured training, change champions on each shift, and "
+            "shadow-operation periods before cutover. Budget 2–3 months."
+        )
+    if operator_familiarity == "Low":
+        return (
+            4,
+            "**Identify and train change-champion operators on each shift.** "
+            "Low overall familiarity is overcome by visible peer adoption. "
+            "Train the highest-aptitude operators first and let them lead."
+        )
+    return None
+
+
+def rec_equipment_audit(equipment_age, **_):
+    if equipment_age == "Mostly over 10 years":
+        return (
+            3,
+            "**Conduct a line-by-line equipment audit before scoping.** "
+            "With equipment mostly over 10 years old, expect PLC firmware "
+            "mismatches and missing data outputs. Some lines may need "
+            "upgrades before OpenLine can be deployed; the audit determines "
+            "which."
+        )
+    return None
+
+
+def rec_multi_site_pmo(num_facilities, **_):
+    if num_facilities >= 4:
+        return (
+            5,
+            f"**Establish a dedicated PMO for the {int(num_facilities)}-site "
+            "rollout.** At this scale, central program management, "
+            "harmonized validation templates, and a sequenced site-by-site "
+            "go-live plan are non-negotiable. Without them, sites diverge."
+        )
+    if num_facilities in (2, 3):
+        return (
+            5,
+            f"**Designate a central rollout lead across the "
+            f"{int(num_facilities)} facilities.** Even at small multi-site "
+            "scale, one accountable owner prevents the sites from "
+            "diverging on validation approach or operational practice."
+        )
+    return None
+
+
+def rec_pilot_scope(prior_attempt, num_lines, **_):
+    if prior_attempt == "Yes — stalled or failed" and num_lines > 5:
+        return (
+            5,
+            f"**Reduce initial scope from {num_lines} lines to 2–3 lines "
+            "for the restart.** A focused restart with visible early wins "
+            "rebuilds organizational confidence faster than a broad "
+            "rollout. Expand only after the restart proves stable."
+        )
+    return None
+
+
+RECOMMENDATION_RULES = [
+    rec_regulatory_observations,
+    rec_validation_capacity,
+    rec_prior_attempt_postmortem,
+    rec_sponsorship,
+    rec_ebr_first,
+    rec_mes_strategy,
+    rec_qa_capacity,
+    rec_operator_training,
+    rec_equipment_audit,
+    rec_multi_site_pmo,
+    rec_pilot_scope,
+]
+
+
+# ============================================================================
+# ENGINES
 # ============================================================================
 
 def compute_readiness_score(
@@ -498,12 +640,33 @@ def compute_roi(
 
 
 def compute_risk_heatmap(**inputs):
-    """Run all 8 risk rules and return a list of (name, rating, explanation)."""
     results = []
     for name, rule_fn in RISK_RULES:
         rating, explanation = rule_fn(**inputs)
         results.append((name, rating, explanation))
     return results
+
+
+def compute_recommendations(**inputs):
+    """
+    Run every recommendation rule. Collect non-None results.
+    Sort by priority (lower number = higher priority).
+    Return top 7 recommendations.
+    """
+    candidates = []
+    for rule_fn in RECOMMENDATION_RULES:
+        result = rule_fn(**inputs)
+        if result is not None:
+            priority, text = result
+            candidates.append((priority, text))
+
+    # Stable sort by priority
+    candidates.sort(key=lambda x: x[0])
+
+    # If we have fewer than 3 high-priority recommendations, the factory is
+    # in good shape and only needs tactical advice. In that case, return
+    # whatever we have. Otherwise cap at 7.
+    return [text for _, text in candidates[:7]]
 
 
 # ============================================================================
@@ -541,7 +704,7 @@ def process_form(
         labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
     )
 
-    risks = compute_risk_heatmap(
+    common_inputs = dict(
         num_lines=num_lines,
         num_facilities=num_facilities,
         current_method=current_method,
@@ -556,22 +719,37 @@ def process_form(
         prior_attempt=prior_attempt,
     )
 
+    risks = compute_risk_heatmap(**common_inputs)
+    recommendations = compute_recommendations(**common_inputs)
+
     payback_text = (
         f"**{roi['payback_months']:.1f} months**"
         if roi["payback_months"] is not None
         else "Not applicable (no projected savings)"
     )
 
-    # Build risk table rows
     risk_table_rows = "\n".join(
         f"| {name} | {RATING_ICON[rating]} | {explanation} |"
         for name, rating, explanation in risks
     )
 
-    # Count risks by rating
     high_count = sum(1 for _, r, _ in risks if r == "High")
     med_count  = sum(1 for _, r, _ in risks if r == "Medium")
     low_count  = sum(1 for _, r, _ in risks if r == "Low")
+
+    # Build recommendation list
+    if recommendations:
+        rec_block = "\n\n".join(
+            f"{i+1}. {text}"
+            for i, text in enumerate(recommendations)
+        )
+    else:
+        rec_block = (
+            "**No critical remediation needed.** Your readiness score and "
+            "risk profile suggest you can proceed directly to rollout planning. "
+            "Standard project hygiene applies: secure budget, set milestones, "
+            "and define success metrics before kickoff."
+        )
 
     summary = f"""
 ## Readiness Assessment
@@ -623,21 +801,27 @@ def process_form(
 |---|---|---|
 {risk_table_rows}
 
-*Each rating is determined by specific rules based on your inputs; the
-explanations reference the exact inputs that drove each rating. Risks rated
-High should be addressed before committing to a full rollout. Risks rated
-Medium typically resolve during the rollout if proactively managed.*
+---
+
+## Next-Steps Recommendation
+
+Based on your inputs, these are the actions to take *before* committing to a
+full OpenLine rollout, ordered by priority:
+
+{rec_block}
 
 ---
 
-*Coming next: tailored next-steps recommendations (Phase 4D), then visual
-charts and PDF executive summary (Phases 5 and 6).*
+*Phase 4 complete. The simulator now produces all four spec outputs: readiness
+score, ROI projection, risk heatmap, and tailored next-steps. Phase 5 will add
+visual charts (readiness gauge, ROI timeline, risk heatmap visual). Phase 6
+adds a downloadable PDF executive summary.*
 """
     return summary
 
 
 # ============================================================================
-# UI (unchanged structure from 4B)
+# UI
 # ============================================================================
 
 INTRO_TEXT = """
@@ -653,8 +837,8 @@ pharma industry piloted digital line clearance tools in 2023, but by 2025 only
 **11% had actually rolled them out**. Most pilots succeed technically — and
 then stall before becoming production deployments.
 
-*Currently in development. Phase 4C — readiness scoring + ROI + risk heatmap.
-Next-steps recommendations, visual charts, and PDF export coming next.*
+*Currently in development. Phase 4D — full assessment engine. Visual charts
+and PDF export coming in Phases 5 and 6.*
 
 ---
 
