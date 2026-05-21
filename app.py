@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 
 # ============================================================================
 # OpenLine Readiness Simulator
-# Phase 5A: Visual layer — headline card, readiness gauge, sub-score ladder
+# Phase 5B: Adds ROI comparison chart + payback timeline
 # ============================================================================
 
 # ============================================================================
@@ -711,21 +711,16 @@ def compute_recommendations(**inputs):
 # ============================================================================
 
 def get_score_color(score):
-    """Map a 0-100 score to a color from the design palette."""
     if score >= 80:
-        return COLORS["risk_low"]      # green
+        return COLORS["risk_low"]
     if score >= 65:
-        return COLORS["accent"]        # teal
+        return COLORS["accent"]
     if score >= 45:
-        return COLORS["secondary"]     # amber
-    return COLORS["risk_high"]         # red
+        return COLORS["secondary"]
+    return COLORS["risk_high"]
 
 
 def build_readiness_gauge(score):
-    """
-    A semicircular gauge with the score number large in the center.
-    Color band reflects the verdict band.
-    """
     color = get_score_color(score)
 
     fig = go.Figure(go.Indicator(
@@ -771,10 +766,6 @@ def build_readiness_gauge(score):
 
 
 def build_subscore_ladder(process, organizational, regulatory, technical):
-    """
-    A horizontal lollipop chart showing where each category sits on 0-100.
-    Looks like a strategy report, not a generic bar chart.
-    """
     categories = ["Process", "Organizational", "Regulatory", "Technical"]
     weights = ["30%", "30%", "25%", "15%"]
     scores = [process, organizational, regulatory, technical]
@@ -782,43 +773,29 @@ def build_subscore_ladder(process, organizational, regulatory, technical):
     colors = [get_score_color(s) for s in scores]
 
     fig = go.Figure()
-
-    # Background grid bars (light gray, full 100)
     fig.add_trace(go.Bar(
-        y=labels,
-        x=[100] * 4,
-        orientation="h",
+        y=labels, x=[100] * 4, orientation="h",
         marker={"color": COLORS["panel_bg"]},
-        hoverinfo="skip",
-        showlegend=False,
-        width=0.5,
+        hoverinfo="skip", showlegend=False, width=0.5,
     ))
-
-    # Score bars
     fig.add_trace(go.Bar(
-        y=labels,
-        x=scores,
-        orientation="h",
+        y=labels, x=scores, orientation="h",
         marker={"color": colors},
         text=[f"<b>{s:.0f}</b>" for s in scores],
         textposition="outside",
         textfont={"size": 14, "color": COLORS["primary"]},
         hovertemplate="<b>%{y}</b><br>Score: %{x:.1f}/100<extra></extra>",
-        showlegend=False,
-        width=0.4,
+        showlegend=False, width=0.4,
     ))
 
     fig.update_layout(
         barmode="overlay",
         height=260,
         margin=dict(l=30, r=60, t=10, b=20),
-        paper_bgcolor="white",
-        plot_bgcolor="white",
+        paper_bgcolor="white", plot_bgcolor="white",
         xaxis={
             "range": [0, 110],
-            "showgrid": False,
-            "zeroline": False,
-            "showticklabels": True,
+            "showgrid": False, "zeroline": False,
             "tickvals": [0, 25, 50, 75, 100],
             "tickfont": {"size": 11, "color": COLORS["text_muted"]},
         },
@@ -826,6 +803,172 @@ def build_subscore_ladder(process, organizational, regulatory, technical):
             "showgrid": False,
             "tickfont": {"size": 13, "color": COLORS["primary"]},
             "autorange": "reversed",
+        },
+        font={"family": "system-ui"},
+    )
+    return fig
+
+
+def build_roi_comparison(current_cost, post_cost, savings):
+    """
+    Side-by-side vertical bars comparing current annual cost vs. post-rollout
+    annual cost. A teal connector between the bar tops shows the savings.
+    """
+    categories = ["Current annual cost<br>(manual line clearance)",
+                  "Projected annual cost<br>(after OpenLine rollout)"]
+    values = [current_cost, post_cost]
+    colors = [COLORS["text_muted"], COLORS["accent"]]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=categories,
+        y=values,
+        marker={"color": colors},
+        text=[f"<b>${v/1000:,.0f}K</b>" for v in values],
+        textposition="outside",
+        textfont={"size": 15, "color": COLORS["primary"]},
+        hovertemplate="%{x}<br>%{y:$,.0f}<extra></extra>",
+        width=0.5,
+        showlegend=False,
+    ))
+
+    # Annotation showing savings between the bars
+    fig.add_annotation(
+        x=0.5,
+        y=max(values) * 1.08,
+        xref="paper",
+        text=f"<b>${savings/1000:,.0f}K saved/year</b>",
+        showarrow=False,
+        font={"size": 14, "color": COLORS["accent"]},
+        bgcolor="white",
+        bordercolor=COLORS["accent"],
+        borderwidth=1.5,
+        borderpad=8,
+    )
+
+    # Arrow connecting the bar tops
+    fig.add_annotation(
+        x=1, y=post_cost,
+        ax=0, ay=current_cost,
+        xref="x", yref="y", axref="x", ayref="y",
+        showarrow=True,
+        arrowhead=2, arrowsize=1.2, arrowwidth=2,
+        arrowcolor=COLORS["accent"],
+    )
+
+    fig.update_layout(
+        height=340,
+        margin=dict(l=40, r=40, t=70, b=60),
+        paper_bgcolor="white", plot_bgcolor="white",
+        xaxis={
+            "showgrid": False,
+            "tickfont": {"size": 12, "color": COLORS["primary"]},
+        },
+        yaxis={
+            "showgrid": True, "gridcolor": COLORS["border"],
+            "zeroline": False,
+            "tickformat": "$,.0s",
+            "tickfont": {"size": 11, "color": COLORS["text_muted"]},
+            "range": [0, max(values) * 1.25],
+        },
+        font={"family": "system-ui"},
+    )
+    return fig
+
+
+def build_payback_timeline(payback_months):
+    """
+    Horizontal strip showing the payback period against a 36-month reference
+    scale. Includes a marker at 24 months (typical pharma capital threshold).
+    """
+    # Cap display at 60 months for layout, but show actual value in text
+    display_value = min(payback_months, 60) if payback_months else 60
+    capped = payback_months and payback_months > 60
+
+    # Determine color based on payback period
+    if payback_months is None:
+        bar_color = COLORS["risk_high"]
+        verdict = "No projected payback"
+    elif payback_months <= 24:
+        bar_color = COLORS["risk_low"]
+        verdict = "Within typical pharma capital approval threshold"
+    elif payback_months <= 36:
+        bar_color = COLORS["accent"]
+        verdict = "Above 24-month threshold — defensible with strategic case"
+    else:
+        bar_color = COLORS["secondary"]
+        verdict = "Long payback — strategic case required"
+
+    fig = go.Figure()
+
+    # Background track (36-month full scale)
+    fig.add_trace(go.Bar(
+        y=["Payback"], x=[60], orientation="h",
+        marker={"color": COLORS["panel_bg"]},
+        hoverinfo="skip", showlegend=False, width=0.5,
+    ))
+
+    # Actual payback bar
+    fig.add_trace(go.Bar(
+        y=["Payback"], x=[display_value], orientation="h",
+        marker={"color": bar_color},
+        hovertemplate=f"<b>{payback_months:.1f} months</b><extra></extra>"
+            if payback_months else "<extra></extra>",
+        showlegend=False, width=0.4,
+    ))
+
+    # 24-month threshold line
+    fig.add_shape(
+        type="line",
+        x0=24, x1=24, y0=-0.5, y1=0.5,
+        line=dict(color=COLORS["primary"], width=2, dash="dash"),
+    )
+    fig.add_annotation(
+        x=24, y=0.5,
+        text="24-month pharma capital threshold",
+        showarrow=False,
+        yshift=18,
+        font={"size": 11, "color": COLORS["primary"]},
+    )
+
+    # Payback value label
+    label_text = (
+        f"<b>{payback_months:.1f} months{' (capped)' if capped else ''}</b>"
+        if payback_months else "<b>N/A</b>"
+    )
+    fig.add_annotation(
+        x=min(display_value + 2, 58), y=0,
+        text=label_text,
+        showarrow=False,
+        xanchor="left",
+        font={"size": 14, "color": COLORS["primary"]},
+    )
+
+    # Verdict subtitle
+    fig.add_annotation(
+        x=30, y=-0.7,
+        text=f"<i>{verdict}</i>",
+        showarrow=False,
+        font={"size": 11, "color": COLORS["text_muted"]},
+    )
+
+    fig.update_layout(
+        barmode="overlay",
+        height=180,
+        margin=dict(l=20, r=20, t=40, b=40),
+        paper_bgcolor="white", plot_bgcolor="white",
+        xaxis={
+            "range": [0, 62],
+            "showgrid": False, "zeroline": False,
+            "tickvals": [0, 12, 24, 36, 48, 60],
+            "ticktext": ["0", "12 mo", "24 mo", "36 mo", "48 mo", "60+ mo"],
+            "tickfont": {"size": 11, "color": COLORS["text_muted"]},
+        },
+        yaxis={
+            "showticklabels": False,
+            "showgrid": False, "zeroline": False,
+            "range": [-1.2, 1.0],
         },
         font={"family": "system-ui"},
     )
@@ -891,8 +1034,14 @@ def process_form(
         score["process"], score["organizational"],
         score["regulatory"], score["technical"],
     )
+    roi_compare_fig = build_roi_comparison(
+        roi["current_annual_cost"],
+        roi["post_rollout_cost"],
+        roi["annual_savings"],
+    )
+    payback_fig = build_payback_timeline(roi["payback_months"])
 
-    # ----- Headline card (HTML) -----
+    # ----- Headline card -----
     headline_html = f"""
 <div id="headline-card">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:32px;flex-wrap:wrap;">
@@ -922,7 +1071,7 @@ def process_form(
 </div>
 """
 
-    # ----- ROI + risks + recommendations (still markdown for now — visuals in 5B/5C) -----
+    # ----- Risk and recommendations text blocks -----
     risk_table_rows = "\n".join(
         f"| {name} | {RATING_ICON[rating]} | {explanation} |"
         for name, rating, explanation in risks
@@ -940,30 +1089,23 @@ def process_form(
             "risk profile suggest you can proceed directly to rollout planning."
         )
 
-    details_md = f"""
+    # ROI calculation notes (text below the charts)
+    roi_notes_md = f"""
 <div class="results-section">
 
-## Financial Projection (ROI)
+### How the financial projection was calculated
 
-| Metric | Value |
-|---|---|
-| Annual line clearance events | **{roi['annual_events']:,}** |
-| Current annual line clearance cost | **{_fmt_money(roi['current_annual_cost'])}** |
-| Projected post-rollout annual cost | **{_fmt_money(roi['post_rollout_cost'])}** |
-| **Annual savings** | **{_fmt_money(roi['annual_savings'])}** |
-| Estimated deployment cost | **{_fmt_money(roi['deployment_cost'])}** |
-| **Payback period** | **{payback_text}** |
-
-### How this was calculated
-
-- **Annual clearance events:** {num_lines} lines × {changeovers_per_week} changeovers/week × 48 production weeks/year
+- **Annual clearance events:** {num_lines} lines × {changeovers_per_week} changeovers/week × 48 production weeks/year = **{roi['annual_events']:,} events**
 - **Labor hours per event:** {DURATION_TO_HOURS[clearance_duration]} hours × 2 operators (operator + QA witness, per GMP)
 - **Labor rate used:** {_fmt_money(labor_rate)}/hour fully-loaded
 - **Time savings applied:** {time_savings_pct}% (Catalyx publishes 85%; default conservatively halved)
 - **Deployment cost:** {_fmt_money(first_line_cost)} per first line across {num_facilities} facilities, plus {_fmt_money(additional_line_cost)} per additional line
+- **Total deployment cost:** **{_fmt_money(roi['deployment_cost'])}**
 
 </div>
+"""
 
+    risk_md = f"""
 <div class="results-section">
 
 ## Risk Heatmap
@@ -987,7 +1129,10 @@ Actions to take *before* committing to a full OpenLine rollout, ordered by prior
 </div>
 """
 
-    return headline_html, gauge_fig, ladder_fig, details_md
+    return (
+        headline_html, gauge_fig, ladder_fig,
+        roi_compare_fig, payback_fig, roi_notes_md, risk_md,
+    )
 
 
 # ============================================================================
@@ -1086,11 +1231,18 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
 
     submit_btn = gr.Button("Run Assessment", variant="primary", size="lg")
 
-    # ----- Results area (initially empty) -----
+    # ----- Results area -----
     headline_out = gr.HTML()
     with gr.Row():
         gauge_out = gr.Plot(label="Readiness Score")
         ladder_out = gr.Plot(label="Sub-score Breakdown")
+
+    gr.Markdown("## Financial Projection (ROI)")
+    with gr.Row():
+        roi_compare_out = gr.Plot(label="Annual cost: before vs after")
+        payback_out = gr.Plot(label="Payback period")
+    roi_notes_out = gr.Markdown()
+
     details_out = gr.Markdown()
 
     submit_btn.click(
@@ -1103,7 +1255,10 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
             operator_familiarity, prior_attempt,
             labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
         ],
-        outputs=[headline_out, gauge_out, ladder_out, details_out],
+        outputs=[
+            headline_out, gauge_out, ladder_out,
+            roi_compare_out, payback_out, roi_notes_out, details_out,
+        ],
     )
 
 
