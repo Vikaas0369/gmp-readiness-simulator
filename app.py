@@ -14,9 +14,23 @@ from reportlab.platypus import (
 )
 
 # ============================================================================
-# OpenLine Readiness Simulator
-# Phase 5C: Risk Heatmap as visual grid
+# GMP Pilot-to-Production Readiness Simulator
+# Renamed from "OpenLine Readiness Simulator" to be vendor-neutral.
+# Unofficial portfolio prototype. Not affiliated with any specific vendor.
+# Built on publicly available pharma industry research.
 # ============================================================================
+
+APP_TITLE = "GMP Pilot-to-Production Readiness Simulator"
+APP_TAGLINE = (
+    "An assessment tool for pharma manufacturing leaders evaluating "
+    "whether their factories are ready to roll out AI-powered line "
+    "clearance — before committing budget."
+)
+APP_DISCLAIMER = (
+    "Unofficial portfolio prototype. Not affiliated with or endorsed by "
+    "Catalyx or any specific vendor. Built on publicly available industry "
+    "research including the 2025 pharma line clearance benchmark."
+)
 
 COLORS = {
     "primary":      "#1a2b4a",
@@ -55,6 +69,15 @@ CUSTOM_CSS = f"""
     font-size: 15px !important;
     margin: 0 !important;
     line-height: 1.5 !important;
+}}
+#disclaimer-strip {{
+    background: #fffbeb;
+    border-left: 3px solid {COLORS['secondary']};
+    padding: 10px 16px;
+    margin: 0 0 20px 0;
+    font-size: 12px;
+    color: {COLORS['text_muted']};
+    border-radius: 0 4px 4px 0;
 }}
 #headline-card {{
     background: white;
@@ -164,6 +187,7 @@ DEFAULT_LABOR_RATE_USD_PER_HOUR = 65
 DEFAULT_TIME_SAVINGS_PCT = 45
 DEFAULT_FIRST_LINE_COST_USD = 90_000
 DEFAULT_ADDITIONAL_LINE_COST_USD = 55_000
+DEFAULT_DOWNTIME_COST_PER_HOUR_USD = 0   # NEW: user-adjustable, defaults to 0
 NUM_OPERATORS_PER_CLEARANCE = 2
 WEEKS_PER_YEAR = 48
 
@@ -173,13 +197,42 @@ DURATION_TO_HOURS = {
 
 
 # ============================================================================
+# SAMPLE SCENARIO — for the "Load sample scenario" button
+# ============================================================================
+
+SAMPLE_SCENARIO = {
+    "num_lines": 18,
+    "num_facilities": 2,
+    "annual_volume": "10–100 million units",
+    "product_type": "Oral solid dose",
+    "current_method": "Hybrid (some digital, some paper)",
+    "clearance_duration": "1–2 hours",
+    "changeovers_per_week": 6,
+    "deviation_frequency": "3–5",
+    "mes_system": "SAP",
+    "ebr_system": "Partial",
+    "equipment_age": "Mixed (some new, some old)",
+    "inspection_outcome": "Minor observations",
+    "validation_maturity": "Functional but ad-hoc",
+    "operator_familiarity": "Medium",
+    "prior_attempt": "No — first attempt",
+    "labor_rate": 65,
+    "time_savings_pct": 45,
+    "first_line_cost": 90_000,
+    "additional_line_cost": 55_000,
+    "downtime_cost_per_hour": 0,
+}
+
+
+# ============================================================================
 # RISK RULES
 # ============================================================================
 
 def risk_legacy_integration(mes_system, ebr_system, equipment_age, **_):
     if mes_system == "None" and ebr_system == "No":
-        return "High", ("No MES and no eBR in place — OpenLine integration would require "
-            "building both upstream systems first, adding 6–12 months before deployment.")
+        return "High", ("No MES and no eBR in place — integration with an AI-powered "
+            "line clearance platform would require building both upstream systems "
+            "first, adding 6–12 months before deployment.")
     if mes_system in ("None", "Other / Custom") or ebr_system == "No":
         return "Medium", (f"MES setup ({mes_system}) and eBR coverage ({ebr_system}) will "
             "require additional integration work — plan 2–4 months of IT effort.")
@@ -304,7 +357,7 @@ def rec_regulatory_observations(inspection_outcome, **_):
     if inspection_outcome == "Major observations":
         return (1, "**Resolve outstanding regulatory observations first.** Adding "
             "new validation scope while major observations are open creates regulatory "
-            "exposure. Close CAPA actions before initiating OpenLine work.")
+            "exposure. Close CAPA actions before initiating any deployment work.")
     return None
 
 
@@ -337,17 +390,17 @@ def rec_sponsorship(prior_attempt, operator_familiarity, **_):
 
 def rec_ebr_first(ebr_system, mes_system, **_):
     if ebr_system == "No":
-        return (3, "**Establish electronic batch record coverage before OpenLine.** "
-            "Without eBR, OpenLine integration must build the batch-record interface "
-            "from scratch, adding months and creating a single point of failure.")
+        return (3, "**Establish electronic batch record coverage first.** "
+            "Without eBR, the AI line clearance integration must build the batch-record "
+            "interface from scratch, adding months and creating a single point of failure.")
     return None
 
 
 def rec_mes_strategy(mes_system, **_):
     if mes_system == "None":
-        return (3, "**Define an MES strategy before scoping OpenLine.** With no MES, "
-            "OpenLine has nothing to receive batch context from. Choose whether to "
-            "deploy a pharma-grade MES in parallel or scope OpenLine as standalone.")
+        return (3, "**Define an MES strategy before scoping.** With no MES, an AI line "
+            "clearance platform has nothing to receive batch context from. Choose whether "
+            "to deploy a pharma-grade MES in parallel or scope as standalone.")
     return None
 
 
@@ -377,7 +430,7 @@ def rec_equipment_audit(equipment_age, **_):
     if equipment_age == "Mostly over 10 years":
         return (3, "**Conduct a line-by-line equipment audit before scoping.** With "
             "equipment mostly over 10 years old, expect PLC firmware mismatches. "
-            "Some lines may need upgrades before OpenLine can be deployed.")
+            "Some lines may need upgrades before AI line clearance can be deployed.")
     return None
 
 
@@ -452,24 +505,42 @@ def compute_readiness_score(
 def compute_roi(
     num_lines, num_facilities, changeovers_per_week, clearance_duration,
     labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+    downtime_cost_per_hour=0,
 ):
     hours_per_clearance = DURATION_TO_HOURS[clearance_duration]
     annual_clearance_events = num_lines * changeovers_per_week * WEEKS_PER_YEAR
     labor_hours_per_event = hours_per_clearance * NUM_OPERATORS_PER_CLEARANCE
     current_annual_cost = annual_clearance_events * labor_hours_per_event * labor_rate
     post_rollout_cost = current_annual_cost * (1 - time_savings_pct / 100)
-    annual_savings = current_annual_cost - post_rollout_cost
+    labor_savings = current_annual_cost - post_rollout_cost
+
+    # Downtime savings: hours saved (not counting QA witness — downtime is line-stopped time)
+    # = annual_events × clearance_hours × (time_savings_pct/100) × downtime_cost_per_hour
+    downtime_hours_saved = (annual_clearance_events * hours_per_clearance
+                             * (time_savings_pct / 100))
+    downtime_savings = downtime_hours_saved * downtime_cost_per_hour
+
+    annual_savings = labor_savings + downtime_savings
+
     lines_per_facility = max(1, num_lines / num_facilities)
     deployment_cost = (num_facilities * first_line_cost
         + num_facilities * (lines_per_facility - 1) * additional_line_cost)
     payback_months = (deployment_cost / annual_savings) * 12 if annual_savings > 0 else None
+
+    # 3-year net benefit
+    three_year_net_benefit = (annual_savings * 3) - deployment_cost
+
     return {
         "annual_events": int(annual_clearance_events),
         "current_annual_cost": current_annual_cost,
         "post_rollout_cost": post_rollout_cost,
+        "labor_savings": labor_savings,
+        "downtime_savings": downtime_savings,
         "annual_savings": annual_savings,
         "deployment_cost": deployment_cost,
         "payback_months": payback_months,
+        "three_year_net_benefit": three_year_net_benefit,
+        "downtime_cost_per_hour": downtime_cost_per_hour,
     }
 
 
@@ -566,7 +637,7 @@ def build_subscore_ladder(process, organizational, regulatory, technical):
 
 def build_roi_comparison(current_cost, post_cost, savings):
     categories = ["Current annual cost<br>(manual line clearance)",
-                  "Projected annual cost<br>(after OpenLine rollout)"]
+                  "Projected annual cost<br>(after AI line clearance rollout)"]
     values = [current_cost, post_cost]
     colors = [COLORS["text_muted"], COLORS["accent"]]
     fig = go.Figure()
@@ -624,49 +695,49 @@ def build_payback_timeline(payback_months):
         hovertemplate=f"<b>{payback_months:.1f} months</b><extra></extra>"
             if payback_months else "<extra></extra>",
         showlegend=False, width=0.4))
+
+    # 24-month threshold line
     fig.add_shape(type="line", x0=24, x1=24, y0=-0.5, y1=0.5,
         line=dict(color=COLORS["primary"], width=2, dash="dash"))
     fig.add_annotation(x=24, y=0.5,
         text="24-month pharma capital threshold",
         showarrow=False, yshift=18,
         font={"size": 11, "color": COLORS["primary"]})
+
+    # NEW: Break-even marker at the actual payback value
+    if payback_months and payback_months <= 60:
+        fig.add_shape(type="line",
+            x0=payback_months, x1=payback_months, y0=-0.4, y1=0.4,
+            line=dict(color=COLORS["primary"], width=2.5))
+        fig.add_annotation(x=payback_months, y=-0.45,
+            text=f"<b>Break-even: month {payback_months:.1f}</b>",
+            showarrow=False, yshift=-12,
+            font={"size": 11, "color": COLORS["primary"]})
+
     label_text = (f"<b>{payback_months:.1f} months{' (capped)' if capped else ''}</b>"
         if payback_months else "<b>N/A</b>")
     fig.add_annotation(x=min(display_value + 2, 58), y=0,
         text=label_text, showarrow=False, xanchor="left",
         font={"size": 14, "color": COLORS["primary"]})
-    fig.add_annotation(x=30, y=-0.7, text=f"<i>{verdict}</i>",
+    fig.add_annotation(x=30, y=-0.95, text=f"<i>{verdict}</i>",
         showarrow=False,
         font={"size": 11, "color": COLORS["text_muted"]})
-    fig.update_layout(barmode="overlay", height=180,
-        margin=dict(l=20, r=20, t=40, b=40),
+    fig.update_layout(barmode="overlay", height=200,
+        margin=dict(l=20, r=20, t=40, b=50),
         paper_bgcolor="white", plot_bgcolor="white",
         xaxis={"range": [0, 62], "showgrid": False, "zeroline": False,
             "tickvals": [0, 12, 24, 36, 48, 60],
             "ticktext": ["0", "12 mo", "24 mo", "36 mo", "48 mo", "60+ mo"],
             "tickfont": {"size": 11, "color": COLORS["text_muted"]}},
         yaxis={"showticklabels": False, "showgrid": False, "zeroline": False,
-            "range": [-1.2, 1.0]},
+            "range": [-1.4, 1.0]},
         font={"family": "system-ui"})
     return fig
 
 
 def build_risk_heatmap_grid(risks):
-    """
-    Render the 8 risks as a 2x4 grid of colored cards.
-    Cards show: rating header, risk name, and a SHORT tagline.
-    Full explanation appears below the grid in a styled table.
-    """
-    rating_color = {
-        "High": COLORS["risk_high"],
-        "Medium": COLORS["risk_medium"],
-        "Low": COLORS["risk_low"],
-    }
-    rating_bg = {
-        "High": "#f5e0e0",
-        "Medium": "#fbeed3",
-        "Low": "#dfe9e0",
-    }
+    rating_color = {"High": COLORS["risk_high"], "Medium": COLORS["risk_medium"], "Low": COLORS["risk_low"]}
+    rating_bg = {"High": "#f5e0e0", "Medium": "#fbeed3", "Low": "#dfe9e0"}
 
     rows, cols = 2, 4
     fig = go.Figure()
@@ -678,39 +749,29 @@ def build_risk_heatmap_grid(risks):
         y0, y1 = rows - row - 1, rows - row
         cx = (x0 + x1) / 2
 
-        # Build a short tagline (first sentence, capped at 80 chars)
         tagline = _make_tagline(explanation)
 
-        # Card background
         fig.add_shape(type="rect",
             x0=x0 + 0.05, x1=x1 - 0.05,
             y0=y0 + 0.05, y1=y1 - 0.05,
             fillcolor=rating_bg[rating],
             line=dict(color=rating_color[rating], width=2),
             layer="below")
-
-        # Top color strip
         fig.add_shape(type="rect",
             x0=x0 + 0.05, x1=x1 - 0.05,
             y0=y1 - 0.18, y1=y1 - 0.05,
             fillcolor=rating_color[rating],
             line=dict(width=0), layer="below")
-
-        # Rating text on strip
         fig.add_annotation(x=cx, y=y1 - 0.115,
             text=f"<b>{rating.upper()}</b>",
             showarrow=False,
             font=dict(size=12, color="white", family="system-ui"))
-
-        # Risk name (wrapped on word boundaries, max 2 lines)
         wrapped_name = _wrap_text(name, max_chars=20, max_lines=2)
         fig.add_annotation(x=cx, y=y1 - 0.35,
             text=f"<b>{wrapped_name}</b>",
             showarrow=False,
             font=dict(size=12, color=COLORS["primary"], family="system-ui"),
             align="center")
-
-        # Short tagline (max 3 lines)
         wrapped_tagline = _wrap_text(tagline, max_chars=24, max_lines=3)
         fig.add_annotation(x=cx, y=y0 + 0.32,
             text=wrapped_tagline,
@@ -730,17 +791,11 @@ def build_risk_heatmap_grid(risks):
 
 
 def _make_tagline(explanation):
-    """
-    Distill a long explanation into a short tagline.
-    Takes the first sentence; if still too long, truncates at a word boundary.
-    """
-    # First sentence
     for sep in [". ", " — ", " - ", ": "]:
         if sep in explanation:
             first = explanation.split(sep, 1)[0]
             if 10 < len(first) < 90:
                 return first
-    # Otherwise truncate to 75 chars at word boundary
     if len(explanation) <= 75:
         return explanation
     truncated = explanation[:75]
@@ -751,26 +806,19 @@ def _make_tagline(explanation):
 
 
 def _wrap_text(text, max_chars=24, max_lines=3):
-    """
-    Word-aware line wrap. Breaks on whitespace only — never mid-word.
-    Caps the result at max_lines, appending '…' if truncated.
-    """
     words = text.split()
     lines = []
     current = ""
     for word in words:
-        # If a single word is longer than max_chars, force-break it
         if len(word) > max_chars:
             if current:
                 lines.append(current)
                 current = ""
-            # break the long word into max_chars chunks
             while len(word) > max_chars:
                 lines.append(word[:max_chars])
                 word = word[max_chars:]
             current = word
             continue
-
         candidate = (current + " " + word).strip()
         if len(candidate) <= max_chars:
             current = candidate
@@ -780,21 +828,19 @@ def _wrap_text(text, max_chars=24, max_lines=3):
             current = word
     if current:
         lines.append(current)
-
     if len(lines) > max_lines:
         lines = lines[:max_lines]
         last = lines[-1]
         if len(last) > max_chars - 1:
             last = last[:max_chars - 1].rstrip()
         lines[-1] = last + "…"
-
     return "<br>".join(lines)
 
+
 # ============================================================================
-# PDF BUILDER (Phase 6A: cover page + executive summary)
+# PDF BUILDER
 # ============================================================================
 
-# Reusable PDF colors (HexColor objects from our design system)
 PDF_PRIMARY    = HexColor(COLORS["primary"])
 PDF_ACCENT     = HexColor(COLORS["accent"])
 PDF_SECONDARY  = HexColor(COLORS["secondary"])
@@ -806,187 +852,122 @@ PDF_PANEL_BG   = HexColor(COLORS["panel_bg"])
 
 
 def _pdf_styles():
-    """Build a stylesheet for the PDF."""
     styles = getSampleStyleSheet()
-
-    # Override / add custom styles
-    styles.add(ParagraphStyle(
-        name="CoverTitle",
-        fontName="Helvetica-Bold",
-        fontSize=28,
-        leading=34,
-        textColor=PDF_PRIMARY,
-        alignment=TA_LEFT,
-        spaceAfter=12,
-    ))
-    styles.add(ParagraphStyle(
-        name="CoverSubtitle",
-        fontName="Helvetica",
-        fontSize=14,
-        leading=20,
-        textColor=PDF_TEXT_MUTED,
-        alignment=TA_LEFT,
-        spaceAfter=18,
-    ))
-    styles.add(ParagraphStyle(
-        name="CoverMeta",
-        fontName="Helvetica",
-        fontSize=10,
-        leading=14,
-        textColor=PDF_TEXT_MUTED,
-        alignment=TA_LEFT,
-    ))
-    styles.add(ParagraphStyle(
-        name="SectionHeading",
-        fontName="Helvetica-Bold",
-        fontSize=16,
-        leading=20,
-        textColor=PDF_PRIMARY,
-        spaceBefore=8,
-        spaceAfter=12,
-        borderColor=PDF_ACCENT,
-        borderWidth=0,
-        borderPadding=0,
-    ))
-    styles.add(ParagraphStyle(
-        name="EyebrowLabel",
-        fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=12,
-        textColor=PDF_TEXT_MUTED,
-        spaceAfter=4,
-    ))
-    styles.add(ParagraphStyle(
-        name="HeroNumber",
-        fontName="Helvetica-Bold",
-        fontSize=36,
-        leading=40,
-        textColor=PDF_PRIMARY,
-        spaceAfter=4,
-    ))
-    styles.add(ParagraphStyle(
-        name="HeroVerdict",
-        fontName="Helvetica-Bold",
-        fontSize=18,
-        leading=22,
-        textColor=PDF_PRIMARY,
-        spaceAfter=6,
-    ))
-    styles.add(ParagraphStyle(
-        name="BodyText2",
-        fontName="Helvetica",
-        fontSize=10,
-        leading=15,
-        textColor=PDF_PRIMARY,
-        spaceAfter=8,
-    ))
-    styles.add(ParagraphStyle(
-        name="Caption",
-        fontName="Helvetica-Oblique",
-        fontSize=8.5,
-        leading=12,
-        textColor=PDF_TEXT_MUTED,
-        spaceAfter=6,
-    ))
+    styles.add(ParagraphStyle(name="CoverTitle", fontName="Helvetica-Bold",
+        fontSize=24, leading=30, textColor=PDF_PRIMARY,
+        alignment=TA_LEFT, spaceAfter=12))
+    styles.add(ParagraphStyle(name="CoverSubtitle", fontName="Helvetica",
+        fontSize=14, leading=20, textColor=PDF_TEXT_MUTED,
+        alignment=TA_LEFT, spaceAfter=18))
+    styles.add(ParagraphStyle(name="CoverMeta", fontName="Helvetica",
+        fontSize=10, leading=14, textColor=PDF_TEXT_MUTED, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(name="DisclaimerStyle", fontName="Helvetica-Oblique",
+        fontSize=9, leading=12, textColor=PDF_TEXT_MUTED, alignment=TA_LEFT,
+        spaceAfter=8))
+    styles.add(ParagraphStyle(name="SectionHeading", fontName="Helvetica-Bold",
+        fontSize=16, leading=20, textColor=PDF_PRIMARY,
+        spaceBefore=8, spaceAfter=12))
+    styles.add(ParagraphStyle(name="EyebrowLabel", fontName="Helvetica-Bold",
+        fontSize=8, leading=12, textColor=PDF_TEXT_MUTED, spaceAfter=4))
+    styles.add(ParagraphStyle(name="HeroNumber", fontName="Helvetica-Bold",
+        fontSize=32, leading=36, textColor=PDF_PRIMARY, spaceAfter=4))
+    styles.add(ParagraphStyle(name="HeroVerdict", fontName="Helvetica-Bold",
+        fontSize=18, leading=22, textColor=PDF_PRIMARY, spaceAfter=6))
+    styles.add(ParagraphStyle(name="BodyText2", fontName="Helvetica",
+        fontSize=10, leading=15, textColor=PDF_PRIMARY, spaceAfter=8))
+    styles.add(ParagraphStyle(name="Caption", fontName="Helvetica-Oblique",
+        fontSize=8.5, leading=12, textColor=PDF_TEXT_MUTED, spaceAfter=6))
     return styles
 
 
 def _draw_cover_decorations(canvas, doc):
-    """Draw decorative elements on the cover page only."""
     if doc.page == 1:
-        # Top navy band
         canvas.saveState()
         canvas.setFillColor(PDF_PRIMARY)
-        canvas.rect(0, LETTER[1] - 0.5 * inch, LETTER[0], 0.5 * inch,
-                    stroke=0, fill=1)
-        # Bottom teal accent bar
+        canvas.rect(0, LETTER[1] - 0.5 * inch, LETTER[0], 0.5 * inch, stroke=0, fill=1)
         canvas.setFillColor(PDF_ACCENT)
         canvas.rect(0.5 * inch, 0.5 * inch, 1.5 * inch, 4, stroke=0, fill=1)
         canvas.restoreState()
 
 
 def _draw_page_chrome(canvas, doc):
-    """Header and footer drawn on every page except the cover."""
     if doc.page > 1:
         canvas.saveState()
-        # Top thin line
         canvas.setStrokeColor(PDF_BORDER)
         canvas.setLineWidth(0.5)
         canvas.line(0.5 * inch, LETTER[1] - 0.4 * inch,
                     LETTER[0] - 0.5 * inch, LETTER[1] - 0.4 * inch)
-        # Header text (left)
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(PDF_TEXT_MUTED)
         canvas.drawString(0.5 * inch, LETTER[1] - 0.3 * inch,
-                          "OpenLine Readiness Simulator  ·  Executive Summary")
-        # Page number (right)
+                          "GMP Pilot-to-Production Readiness Simulator  ·  Executive Summary")
         canvas.drawRightString(LETTER[0] - 0.5 * inch, LETTER[1] - 0.3 * inch,
                                f"Page {doc.page}")
-        # Bottom thin line
         canvas.line(0.5 * inch, 0.5 * inch,
                     LETTER[0] - 0.5 * inch, 0.5 * inch)
         canvas.setFont("Helvetica-Oblique", 7.5)
         canvas.drawString(0.5 * inch, 0.35 * inch,
-                          "Confidential — generated by OpenLine Readiness Simulator")
+                          "Confidential — generated by GMP Pilot-to-Production Readiness Simulator (unofficial portfolio prototype)")
         canvas.restoreState()
     _draw_cover_decorations(canvas, doc)
 
 
+def _fmt_money(x):
+    return f"${x:,.0f}"
+
+
 def _build_cover_page(styles, score, roi):
-    """Cover page elements."""
     elements = []
-    elements.append(Spacer(1, 1.4 * inch))
+    elements.append(Spacer(1, 1.2 * inch))
 
-    elements.append(Paragraph("OpenLine Readiness Simulator", styles["CoverTitle"]))
-    elements.append(Paragraph(
-        "Executive Summary &amp; Business Case",
-        styles["CoverSubtitle"]
-    ))
+    elements.append(Paragraph("GMP Pilot-to-Production<br/>Readiness Simulator", styles["CoverTitle"]))
+    elements.append(Paragraph("Executive Summary &amp; Business Case", styles["CoverSubtitle"]))
 
-    elements.append(Spacer(1, 0.4 * inch))
+    elements.append(Paragraph(APP_DISCLAIMER, styles["DisclaimerStyle"]))
 
-    # A big preview of the headline numbers (verdict + payback)
+    elements.append(Spacer(1, 0.3 * inch))
+
     payback_str = (f"{roi['payback_months']:.1f} months"
                    if roi["payback_months"] is not None else "N/A")
 
     hero_data = [
-        [
-            Paragraph("READINESS VERDICT", styles["EyebrowLabel"]),
-            Paragraph("PROJECTED PAYBACK", styles["EyebrowLabel"]),
-        ],
-        [
-            Paragraph(score["verdict_label"], styles["HeroVerdict"]),
-            Paragraph(payback_str, ParagraphStyle(
-                name="PaybackHero",
-                parent=styles["HeroVerdict"],
-                textColor=PDF_ACCENT,
-            )),
-        ],
-        [
-            Paragraph(f"Score: <b>{score['total']} / 100</b>", styles["BodyText2"]),
-            Paragraph(f"Annual savings: <b>${roi['annual_savings']:,.0f}</b>",
-                      styles["BodyText2"]),
-        ],
+        [Paragraph("READINESS VERDICT", styles["EyebrowLabel"]),
+         Paragraph("PROJECTED PAYBACK", styles["EyebrowLabel"])],
+        [Paragraph(score["verdict_label"], styles["HeroVerdict"]),
+         Paragraph(payback_str, ParagraphStyle(
+             name="PaybackHero", parent=styles["HeroVerdict"], textColor=PDF_ACCENT))],
+        [Paragraph(f"Score: <b>{score['total']} / 100</b>", styles["BodyText2"]),
+         Paragraph(f"Annual savings: <b>${roi['annual_savings']:,.0f}</b>", styles["BodyText2"])],
     ]
     hero_table = Table(hero_data, colWidths=[3.5 * inch, 3.5 * inch])
     hero_table.setStyle(TableStyle([
-        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 14),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 14),
         ("RIGHTPADDING", (0, 0), (-1, -1), 14),
-        ("TOPPADDING",   (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
         ("BACKGROUND", (0, 0), (-1, -1), PDF_PANEL_BG),
-        ("LINEABOVE",  (0, 0), (-1, 0), 0.5, PDF_BORDER),
-        ("LINEBELOW",  (0, -1), (-1, -1), 0.5, PDF_BORDER),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.5, PDF_BORDER),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.5, PDF_BORDER),
         ("LINEBEFORE", (0, 0), (0, -1), 0.5, PDF_BORDER),
-        ("LINEAFTER",  (-1, 0), (-1, -1), 0.5, PDF_BORDER),
+        ("LINEAFTER", (-1, 0), (-1, -1), 0.5, PDF_BORDER),
         ("LINEBEFORE", (1, 0), (1, -1), 0.5, PDF_BORDER),
     ]))
     elements.append(hero_table)
 
+    # NEW: 3-year net benefit on the cover
+    elements.append(Spacer(1, 0.25 * inch))
+    net_color = COLORS["risk_low"] if roi["three_year_net_benefit"] >= 0 else COLORS["risk_high"]
+    elements.append(Paragraph(
+        f"<b>3-Year Net Benefit:</b> "
+        f"<font color='{net_color}'><b>${roi['three_year_net_benefit']:,.0f}</b></font>  "
+        f"<font color='{COLORS['text_muted']}'>"
+        f"(3 × annual savings − one-time deployment cost)</font>",
+        styles["BodyText2"]
+    ))
+
     elements.append(Spacer(1, 0.5 * inch))
 
-    # Metadata block at the bottom of the cover
     today = datetime.date.today().strftime("%B %d, %Y")
     elements.append(Paragraph(
         f"<b>Generated:</b> {today}<br/>"
@@ -1001,75 +982,62 @@ def _build_cover_page(styles, score, roi):
 
 def _build_executive_summary_page(styles, score, roi, risks, recommendations,
                                   num_lines, num_facilities):
-    """Page 2: the one-page executive overview."""
     elements = []
-
     elements.append(Paragraph("Executive Summary", styles["SectionHeading"]))
-    # Underline for section heading (manual since we can't easily style borders in ParagraphStyle)
     elements.append(Spacer(1, 0.02 * inch))
 
-    # Three-column metric strip (Score / Payback / Savings)
     payback_str = (f"{roi['payback_months']:.1f} mo"
                    if roi["payback_months"] is not None else "N/A")
 
     metric_data = [
-        [
-            Paragraph("READINESS SCORE", styles["EyebrowLabel"]),
-            Paragraph("PAYBACK", styles["EyebrowLabel"]),
-            Paragraph("ANNUAL SAVINGS", styles["EyebrowLabel"]),
-        ],
-        [
-            Paragraph(f"{score['total']}", styles["HeroNumber"]),
-            Paragraph(payback_str, styles["HeroNumber"]),
-            Paragraph(f"${roi['annual_savings']/1000:,.0f}K", styles["HeroNumber"]),
-        ],
-        [
-            Paragraph(score["verdict_label"], styles["BodyText2"]),
-            Paragraph("vs. 24-month threshold", styles["Caption"]),
-            Paragraph(f"per year at {num_lines} lines", styles["Caption"]),
-        ],
+        [Paragraph("READINESS SCORE", styles["EyebrowLabel"]),
+         Paragraph("PAYBACK", styles["EyebrowLabel"]),
+         Paragraph("ANNUAL SAVINGS", styles["EyebrowLabel"]),
+         Paragraph("3-YEAR NET BENEFIT", styles["EyebrowLabel"])],
+        [Paragraph(f"{score['total']}", styles["HeroNumber"]),
+         Paragraph(payback_str, styles["HeroNumber"]),
+         Paragraph(f"${roi['annual_savings']/1000:,.0f}K", styles["HeroNumber"]),
+         Paragraph(f"${roi['three_year_net_benefit']/1000:,.0f}K", styles["HeroNumber"])],
+        [Paragraph(score["verdict_label"], styles["BodyText2"]),
+         Paragraph("vs. 24-month threshold", styles["Caption"]),
+         Paragraph(f"per year at {num_lines} lines", styles["Caption"]),
+         Paragraph("3 yr savings − deploy cost", styles["Caption"])],
     ]
-    metric_table = Table(metric_data,
-                         colWidths=[2.33 * inch, 2.33 * inch, 2.33 * inch])
+    metric_table = Table(metric_data, colWidths=[1.75 * inch] * 4)
     metric_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 14),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 14),
-        ("TOPPADDING",   (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
-        ("BACKGROUND",   (0, 0), (-1, -1), PDF_PANEL_BG),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, -1), PDF_PANEL_BG),
         ("LINEABOVE", (0, 0), (-1, 0), 0.5, PDF_BORDER),
         ("LINEBELOW", (0, -1), (-1, -1), 0.5, PDF_BORDER),
         ("LINEBEFORE", (0, 0), (0, -1), 0.5, PDF_BORDER),
-        ("LINEAFTER",  (-1, 0), (-1, -1), 0.5, PDF_BORDER),
-        # Internal dividers
+        ("LINEAFTER", (-1, 0), (-1, -1), 0.5, PDF_BORDER),
         ("LINEBEFORE", (1, 0), (1, -1), 0.5, PDF_BORDER),
         ("LINEBEFORE", (2, 0), (2, -1), 0.5, PDF_BORDER),
+        ("LINEBEFORE", (3, 0), (3, -1), 0.5, PDF_BORDER),
     ]))
     elements.append(metric_table)
 
     elements.append(Spacer(1, 0.3 * inch))
 
-    # Narrative paragraphs
     high_count = sum(1 for _, r, _ in risks if r == "High")
     med_count  = sum(1 for _, r, _ in risks if r == "Medium")
     low_count  = sum(1 for _, r, _ in risks if r == "Low")
 
     elements.append(Paragraph("<b>Assessment overview</b>", styles["BodyText2"]))
-    elements.append(Paragraph(
-        f"{score['verdict_message']}",
-        styles["BodyText2"]
-    ))
+    elements.append(Paragraph(f"{score['verdict_message']}", styles["BodyText2"]))
 
     elements.append(Paragraph("<b>Risk profile</b>", styles["BodyText2"]))
     elements.append(Paragraph(
         f"Of the 8 evaluated risks: "
-        f"<font color='{COLORS['risk_high']}'><b>{high_count} are rated High</b></font>, "
-        f"<font color='{COLORS['risk_medium']}'><b>{med_count} are Medium</b></font>, and "
-        f"<font color='{COLORS['risk_low']}'><b>{low_count} are Low</b></font>. "
-        "Detailed rationale follows in the Risk Register section.",
-        styles["BodyText2"]
-    ))
+        f"<font color='{COLORS['risk_high']}'><b>{high_count} High</b></font>, "
+        f"<font color='{COLORS['risk_medium']}'><b>{med_count} Medium</b></font>, "
+        f"<font color='{COLORS['risk_low']}'><b>{low_count} Low</b></font>. "
+        "Detailed rationale in the Risk Register section.",
+        styles["BodyText2"]))
 
     elements.append(Paragraph("<b>Scope under assessment</b>", styles["BodyText2"]))
     elements.append(Paragraph(
@@ -1078,97 +1046,73 @@ def _build_executive_summary_page(styles, score, roi, risks, recommendations,
         f"Estimated total deployment cost of <b>${roi['deployment_cost']:,.0f}</b>, "
         f"against current annual line clearance cost of "
         f"<b>${roi['current_annual_cost']:,.0f}</b>.",
-        styles["BodyText2"]
-    ))
+        styles["BodyText2"]))
 
-    # Top recommendation preview
     if recommendations:
         elements.append(Spacer(1, 0.15 * inch))
         elements.append(Paragraph("<b>Top recommendation</b>", styles["BodyText2"]))
-        # Strip markdown bold marks for clean PDF rendering
         top_rec = recommendations[0].replace("**", "")
         elements.append(Paragraph(top_rec, styles["BodyText2"]))
         remaining = len(recommendations) - 1
         if remaining > 0:
             elements.append(Paragraph(
                 f"<i>{remaining} additional recommendation{'s' if remaining > 1 else ''} follow in the Next Steps section.</i>",
-                styles["Caption"]
-            ))
+                styles["Caption"]))
 
     elements.append(PageBreak())
     return elements
 
+
 def _build_factory_profile_page(styles, inputs):
-    """Page showing what the user entered, formatted as an input summary."""
     elements = []
     elements.append(Paragraph("Factory Profile", styles["SectionHeading"]))
-
     elements.append(Paragraph(
         "The assessment that follows is based on the inputs below. "
         "All defaults are conservative industry midpoints; users may "
         "override any input in the Advanced section of the web tool.",
-        styles["BodyText2"]
-    ))
+        styles["BodyText2"]))
     elements.append(Spacer(1, 0.15 * inch))
 
-    # Group inputs into the same sections as the questionnaire
     sections = [
         ("1. Factory Profile", [
             ("Production lines in scope", f"{int(inputs['num_lines'])}"),
             ("Facilities involved", f"{int(inputs['num_facilities'])}"),
             ("Annual production volume", inputs["annual_volume"]),
-            ("Primary product type", inputs["product_type"]),
-        ]),
+            ("Primary product type", inputs["product_type"])]),
         ("2. Current Line Clearance Practice", [
             ("Current method", inputs["current_method"]),
             ("Avg clearance duration", inputs["clearance_duration"]),
             ("Changeovers per line per week", f"{int(inputs['changeovers_per_week'])}"),
-            ("Deviations in past 12 months", inputs["deviation_frequency"]),
-        ]),
+            ("Deviations in past 12 months", inputs["deviation_frequency"])]),
         ("3. IT and Integration Landscape", [
             ("Existing MES", inputs["mes_system"]),
             ("eBR system coverage", inputs["ebr_system"]),
-            ("Equipment and PLC age", inputs["equipment_age"]),
-        ]),
+            ("Equipment and PLC age", inputs["equipment_age"])]),
         ("4. Regulatory and Quality Context", [
             ("Last inspection outcome", inputs["inspection_outcome"]),
-            ("CSV maturity", inputs["validation_maturity"]),
-        ]),
+            ("CSV maturity", inputs["validation_maturity"])]),
         ("5. Workforce and Change Management", [
             ("Operator digital familiarity", inputs["operator_familiarity"]),
-            ("Prior digitization attempt", inputs["prior_attempt"]),
-        ]),
+            ("Prior digitization attempt", inputs["prior_attempt"])]),
     ]
 
     for section_title, rows in sections:
-        # Section sub-header
         elements.append(Spacer(1, 0.10 * inch))
-        elements.append(Paragraph(
-            f"<b>{section_title}</b>",
-            ParagraphStyle(
-                name="ProfileSubsection",
-                parent=styles["BodyText2"],
-                textColor=PDF_PRIMARY,
-                fontName="Helvetica-Bold",
-                fontSize=10,
-                spaceAfter=4,
-            )
-        ))
-
-        # Build a 2-column table for this section
+        elements.append(Paragraph(f"<b>{section_title}</b>",
+            ParagraphStyle(name="ProfileSubsection", parent=styles["BodyText2"],
+                textColor=PDF_PRIMARY, fontName="Helvetica-Bold",
+                fontSize=10, spaceAfter=4)))
         table_data = []
         for label, value in rows:
-            table_data.append([
-                Paragraph(label, styles["BodyText2"]),
-                Paragraph(f"<b>{value}</b>", styles["BodyText2"]),
-            ])
+            table_data.append([Paragraph(label, styles["BodyText2"]),
+                Paragraph(f"<b>{value}</b>", styles["BodyText2"])])
         t = Table(table_data, colWidths=[2.7 * inch, 4.6 * inch])
         t.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
             ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING",   (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ("LINEBELOW", (0, 0), (-1, -2), 0.3, PDF_BORDER),
             ("BACKGROUND", (0, 0), (-1, -1), HexColor("#fcfdfe")),
         ]))
@@ -1179,20 +1123,15 @@ def _build_factory_profile_page(styles, inputs):
 
 
 def _build_scorecard_page(styles, score):
-    """Page showing the four sub-scores with brief explanations."""
     elements = []
     elements.append(Paragraph("Readiness Scorecard", styles["SectionHeading"]))
-
     elements.append(Paragraph(
         f"Overall readiness score: <b>{score['total']} / 100</b>  ·  "
-        f"Verdict: <b>{score['verdict_label']}</b>",
-        styles["BodyText2"]
-    ))
+        f"Verdict: <b>{score['verdict_label']}</b>", styles["BodyText2"]))
     elements.append(Spacer(1, 0.05 * inch))
     elements.append(Paragraph(score["verdict_message"], styles["BodyText2"]))
     elements.append(Spacer(1, 0.2 * inch))
 
-    # Sub-score table with weight + score + meaning
     subscore_rows = [
         ("Process readiness", 30, score["process"],
          "Maturity of existing line clearance process. Reflects how digitized "
@@ -1214,103 +1153,76 @@ def _build_scorecard_page(styles, score):
         Paragraph("<b>Score</b>", styles["BodyText2"]),
         Paragraph("<b>What this measures</b>", styles["BodyText2"]),
     ]
-
     rows = [header]
     for category, weight, sc, meaning in subscore_rows:
-        # Color the score by band
-        if sc >= 80:
-            color = COLORS["risk_low"]
-        elif sc >= 65:
-            color = COLORS["accent"]
-        elif sc >= 45:
-            color = COLORS["secondary"]
-        else:
-            color = COLORS["risk_high"]
-
+        if sc >= 80: color = COLORS["risk_low"]
+        elif sc >= 65: color = COLORS["accent"]
+        elif sc >= 45: color = COLORS["secondary"]
+        else: color = COLORS["risk_high"]
         rows.append([
             Paragraph(f"<b>{category}</b>", styles["BodyText2"]),
             Paragraph(f"{weight}%", styles["BodyText2"]),
-            Paragraph(
-                f"<font color='{color}'><b>{sc:.0f} / 100</b></font>",
-                styles["BodyText2"]
-            ),
-            Paragraph(meaning, styles["BodyText2"]),
-        ])
-
-    score_table = Table(rows,
-                        colWidths=[1.5 * inch, 0.6 * inch, 0.9 * inch, 4.3 * inch])
+            Paragraph(f"<font color='{color}'><b>{sc:.0f} / 100</b></font>", styles["BodyText2"]),
+            Paragraph(meaning, styles["BodyText2"])])
+    score_table = Table(rows, colWidths=[1.5 * inch, 0.6 * inch, 0.9 * inch, 4.3 * inch])
     score_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING",   (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
         ("BACKGROUND", (0, 0), (-1, 0), PDF_PANEL_BG),
         ("LINEBELOW", (0, 0), (-1, 0), 1, PDF_ACCENT),
         ("LINEBELOW", (0, 1), (-1, -2), 0.3, PDF_BORDER),
         ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
         ("LINEBELOW", (0, -1), (-1, -1), 0.3, PDF_BORDER),
         ("LINEBEFORE", (0, 0), (0, -1), 0.3, PDF_BORDER),
-        ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+        ("LINEAFTER", (-1, 0), (-1, -1), 0.3, PDF_BORDER),
     ]))
     elements.append(score_table)
-
     elements.append(PageBreak())
     return elements
 
 
 def _build_financial_page(styles, roi, inputs):
-    """Page showing the full ROI breakdown as a styled table."""
     elements = []
     elements.append(Paragraph("Financial Projection", styles["SectionHeading"]))
-
     elements.append(Paragraph(
-        "Projected economics if the OpenLine deployment proceeds at the "
-        "scope described. All figures use conservative midpoints of publicly "
-        "available industry ranges; see the methodology appendix for sourcing.",
-        styles["BodyText2"]
-    ))
+        "Projected economics if the deployment proceeds at the scope described. "
+        "All figures use conservative midpoints of publicly available industry ranges; "
+        "see the methodology appendix for sourcing.",
+        styles["BodyText2"]))
     elements.append(Spacer(1, 0.15 * inch))
 
     payback_str = (f"{roi['payback_months']:.1f} months"
                    if roi["payback_months"] is not None else "Not applicable")
+    downtime_line = (f"${roi['downtime_savings']:,.0f}"
+        if roi["downtime_savings"] > 0 else "—  (downtime cost set to $0)")
 
-    # Highlighted savings line — color the annual savings teal
     metric_rows = [
         ["Metric", "Value"],
-        ["Annual line clearance events",
-         f"{roi['annual_events']:,}"],
-        ["Current annual line clearance cost",
-         f"${roi['current_annual_cost']:,.0f}"],
-        ["Projected post-rollout annual cost",
-         f"${roi['post_rollout_cost']:,.0f}"],
-        ["Annual savings",
-         f"${roi['annual_savings']:,.0f}"],
-        ["Estimated deployment cost (one-time)",
-         f"${roi['deployment_cost']:,.0f}"],
-        ["Payback period",
-         payback_str],
+        ["Annual line clearance events", f"{roi['annual_events']:,}"],
+        ["Current annual line clearance cost", f"${roi['current_annual_cost']:,.0f}"],
+        ["Projected post-rollout annual cost", f"${roi['post_rollout_cost']:,.0f}"],
+        ["Annual labor savings", f"${roi['labor_savings']:,.0f}"],
+        ["Annual downtime savings (optional)", downtime_line],
+        ["Total annual savings", f"${roi['annual_savings']:,.0f}"],
+        ["Estimated deployment cost (one-time)", f"${roi['deployment_cost']:,.0f}"],
+        ["Payback period", payback_str],
+        ["3-year net benefit", f"${roi['three_year_net_benefit']:,.0f}"],
     ]
 
-    # Convert to Paragraph objects
     table_data = []
     for i, (label, value) in enumerate(metric_rows):
         is_header = i == 0
-        is_savings_row = label == "Annual savings"
-        is_payback_row = label == "Payback period"
-
         if is_header:
             label_p = Paragraph(f"<b>{label}</b>", styles["BodyText2"])
             value_p = Paragraph(f"<b>{value}</b>", styles["BodyText2"])
-        elif is_savings_row:
+        elif label in ("Total annual savings", "Payback period", "3-year net benefit"):
+            color = COLORS["accent"] if label != "3-year net benefit" else (
+                COLORS["risk_low"] if roi["three_year_net_benefit"] >= 0 else COLORS["risk_high"])
             label_p = Paragraph(f"<b>{label}</b>", styles["BodyText2"])
-            value_p = Paragraph(
-                f"<font color='{COLORS['accent']}'><b>{value}</b></font>",
-                styles["BodyText2"]
-            )
-        elif is_payback_row:
-            label_p = Paragraph(f"<b>{label}</b>", styles["BodyText2"])
-            value_p = Paragraph(f"<b>{value}</b>", styles["BodyText2"])
+            value_p = Paragraph(f"<font color='{color}'><b>{value}</b></font>", styles["BodyText2"])
         else:
             label_p = Paragraph(label, styles["BodyText2"])
             value_p = Paragraph(value, styles["BodyText2"])
@@ -1319,140 +1231,108 @@ def _build_financial_page(styles, roi, inputs):
     fin_table = Table(table_data, colWidths=[4.4 * inch, 2.9 * inch])
     fin_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING",   (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
         ("BACKGROUND", (0, 0), (-1, 0), PDF_PANEL_BG),
         ("LINEBELOW", (0, 0), (-1, 0), 1, PDF_ACCENT),
         ("LINEBELOW", (0, 1), (-1, -2), 0.3, PDF_BORDER),
-        ("BACKGROUND", (0, 4), (-1, 4), HexColor("#eaf3f3")),  # highlight savings row
-        ("BACKGROUND", (0, -1), (-1, -1), HexColor("#eaf3f3")),  # highlight payback row
+        ("BACKGROUND", (0, 6), (-1, 6), HexColor("#eaf3f3")),  # total annual savings row
+        ("BACKGROUND", (0, 8), (-1, 8), HexColor("#eaf3f3")),  # payback row
+        ("BACKGROUND", (0, 9), (-1, 9), HexColor("#eaf3f3")),  # 3-yr net benefit row
         ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
         ("LINEBELOW", (0, -1), (-1, -1), 0.3, PDF_BORDER),
         ("LINEBEFORE", (0, 0), (0, -1), 0.3, PDF_BORDER),
-        ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+        ("LINEAFTER", (-1, 0), (-1, -1), 0.3, PDF_BORDER),
     ]))
     elements.append(fin_table)
 
     elements.append(Spacer(1, 0.2 * inch))
-    elements.append(Paragraph(
-        "<b>How this was calculated</b>",
-        styles["BodyText2"]
-    ))
+    elements.append(Paragraph("<b>How this was calculated</b>", styles["BodyText2"]))
     elements.append(Paragraph(
         f"Annual events: {int(inputs['num_lines'])} lines × "
         f"{int(inputs['changeovers_per_week'])} changeovers/week × 48 production weeks.<br/>"
         f"Labor hours per event: midpoint of the duration band × 2 operators "
         f"(operator + QA witness, per GMP).<br/>"
-        f"Labor rate: ${inputs['labor_rate']:.0f}/hour fully-loaded "
-        f"(US Bureau of Labor Statistics base × 2-2.5x for overhead and indirect).<br/>"
+        f"Labor rate: ${inputs['labor_rate']:.0f}/hour fully-loaded.<br/>"
         f"Time savings applied: {inputs['time_savings_pct']:.0f}% reduction in clearance time "
-        "(Catalyx publishes 85%; default conservatively halved).<br/>"
-        f"Deployment cost: ${inputs['first_line_cost']:,.0f} for the first line in each "
-        f"of {int(inputs['num_facilities'])} facilities, plus "
-        f"${inputs['additional_line_cost']:,.0f} per additional line — industry-typical "
-        "midpoint of $50K–$150K per line for enterprise pharma machine vision.",
-        styles["BodyText2"]
-    ))
-
+        "(vendor claim of 85% conservatively halved).<br/>"
+        f"Downtime cost: ${inputs['downtime_cost_per_hour']:.0f}/hour "
+        "(user-supplied — defaults to $0 to keep the base case conservative).<br/>"
+        f"Deployment cost: ${inputs['first_line_cost']:,.0f} per first line across "
+        f"{int(inputs['num_facilities'])} facilities, plus "
+        f"${inputs['additional_line_cost']:,.0f} per additional line.",
+        styles["BodyText2"]))
     elements.append(PageBreak())
     return elements
 
 
 def _build_risk_register_page(styles, risks):
-    """Page showing the full 8-risk register with rating + rationale."""
     elements = []
     elements.append(Paragraph("Risk Register", styles["SectionHeading"]))
-
     high_count = sum(1 for _, r, _ in risks if r == "High")
     med_count  = sum(1 for _, r, _ in risks if r == "Medium")
     low_count  = sum(1 for _, r, _ in risks if r == "Low")
-
     elements.append(Paragraph(
         f"Eight risks evaluated by rule-based logic against the inputs. "
         f"<font color='{COLORS['risk_high']}'><b>{high_count} High</b></font> · "
         f"<font color='{COLORS['risk_medium']}'><b>{med_count} Medium</b></font> · "
         f"<font color='{COLORS['risk_low']}'><b>{low_count} Low</b></font>.",
-        styles["BodyText2"]
-    ))
+        styles["BodyText2"]))
     elements.append(Paragraph(
         "Each rationale references the specific inputs that drove its rating. "
         "Risks rated High should be addressed before committing to a full rollout; "
         "risks rated Medium typically resolve during rollout if proactively managed.",
-        styles["Caption"]
-    ))
+        styles["Caption"]))
     elements.append(Spacer(1, 0.15 * inch))
 
-    rating_color = {
-        "High":   COLORS["risk_high"],
-        "Medium": COLORS["risk_medium"],
-        "Low":    COLORS["risk_low"],
-    }
-    rating_bg = {
-        "High":   HexColor("#f5e0e0"),
-        "Medium": HexColor("#fbeed3"),
-        "Low":    HexColor("#dfe9e0"),
-    }
+    rating_color = {"High": COLORS["risk_high"], "Medium": COLORS["risk_medium"], "Low": COLORS["risk_low"]}
+    rating_bg = {"High": HexColor("#f5e0e0"), "Medium": HexColor("#fbeed3"), "Low": HexColor("#dfe9e0")}
 
-    # Header row
-    header = [
-        Paragraph("<b>Rating</b>", styles["BodyText2"]),
-        Paragraph("<b>Risk</b>", styles["BodyText2"]),
-        Paragraph("<b>Why this rating</b>", styles["BodyText2"]),
-    ]
+    header = [Paragraph("<b>Rating</b>", styles["BodyText2"]),
+              Paragraph("<b>Risk</b>", styles["BodyText2"]),
+              Paragraph("<b>Why this rating</b>", styles["BodyText2"])]
     rows = [header]
     style_commands = [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING",   (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
         ("BACKGROUND", (0, 0), (-1, 0), PDF_PANEL_BG),
         ("LINEBELOW", (0, 0), (-1, 0), 1, PDF_ACCENT),
         ("LINEBELOW", (0, 1), (-1, -2), 0.3, PDF_BORDER),
         ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
         ("LINEBELOW", (0, -1), (-1, -1), 0.3, PDF_BORDER),
         ("LINEBEFORE", (0, 0), (0, -1), 0.3, PDF_BORDER),
-        ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+        ("LINEAFTER", (-1, 0), (-1, -1), 0.3, PDF_BORDER),
     ]
-
     for idx, (name, rating, explanation) in enumerate(risks):
-        row_idx = idx + 1  # +1 for header
-        # Color the rating cell background based on rating
-        style_commands.append(
-            ("BACKGROUND", (0, row_idx), (0, row_idx), rating_bg[rating])
-        )
+        row_idx = idx + 1
+        style_commands.append(("BACKGROUND", (0, row_idx), (0, row_idx), rating_bg[rating]))
         rating_cell = Paragraph(
-            f"<font color='{rating_color[rating]}'><b>{rating.upper()}</b></font>",
-            styles["BodyText2"]
-        )
+            f"<font color='{rating_color[rating]}'><b>{rating.upper()}</b></font>", styles["BodyText2"])
         name_cell = Paragraph(f"<b>{name}</b>", styles["BodyText2"])
         expl_cell = Paragraph(explanation, styles["BodyText2"])
         rows.append([rating_cell, name_cell, expl_cell])
 
-    risk_table = Table(rows,
-                       colWidths=[0.85 * inch, 2.0 * inch, 4.45 * inch])
+    risk_table = Table(rows, colWidths=[0.85 * inch, 2.0 * inch, 4.45 * inch])
     risk_table.setStyle(TableStyle(style_commands))
     elements.append(risk_table)
-
     elements.append(PageBreak())
     return elements
 
 
 def _build_recommendations_page(styles, recommendations):
-    """Page showing the prioritized next-steps recommendations."""
     elements = []
     elements.append(Paragraph("Next-Steps Recommendations", styles["SectionHeading"]))
-
     elements.append(Paragraph(
-        "Prioritized actions to take <i>before</i> committing to a full OpenLine "
-        "rollout. Order reflects how pharma operations leaders typically sequence "
-        "remediation: regulatory blockers first, then organizational scar tissue, "
-        "then foundational technical gaps, then process improvements, then tactical "
-        "optimizations.",
-        styles["BodyText2"]
-    ))
+        "Prioritized actions to take <i>before</i> committing to a full rollout. "
+        "Order reflects how pharma operations leaders typically sequence remediation: "
+        "regulatory blockers first, then organizational scar tissue, then foundational "
+        "technical gaps, then process improvements, then tactical optimizations.",
+        styles["BodyText2"]))
     elements.append(Spacer(1, 0.15 * inch))
 
     if not recommendations:
@@ -1460,17 +1340,10 @@ def _build_recommendations_page(styles, recommendations):
             "<b>No critical remediation required.</b> Your readiness score and "
             "risk profile suggest you can proceed directly to rollout planning. "
             "Standard project hygiene applies: secure budget, set milestones, "
-            "and define success metrics before kickoff.",
-            styles["BodyText2"]
-        ))
+            "and define success metrics before kickoff.", styles["BodyText2"]))
     else:
-        # Numbered list with each recommendation in its own card-ish row
         for idx, text in enumerate(recommendations):
-            # Strip markdown bold marks (** → just keep the content)
             clean = text.replace("**", "")
-            # Split title and body if the text starts with a bolded header
-            # (recommendations from compute_recommendations() begin with a sentence
-            # that we'll show as the action header)
             if ". " in clean:
                 head, _, tail = clean.partition(". ")
                 head = head.strip() + "."
@@ -1478,268 +1351,150 @@ def _build_recommendations_page(styles, recommendations):
                 rec_text = f"<b>{head}</b> {tail}"
             else:
                 rec_text = clean
-
             number_cell = Paragraph(
                 f"<font color='{COLORS['accent']}'><b>{idx + 1}</b></font>",
-                ParagraphStyle(
-                    name="RecNumber",
-                    parent=styles["BodyText2"],
-                    fontSize=18,
-                    leading=22,
-                    alignment=TA_CENTER,
-                    textColor=PDF_ACCENT,
-                )
-            )
+                ParagraphStyle(name="RecNumber", parent=styles["BodyText2"],
+                    fontSize=18, leading=22, alignment=TA_CENTER, textColor=PDF_ACCENT))
             body_cell = Paragraph(rec_text, styles["BodyText2"])
-
-            rec_table = Table(
-                [[number_cell, body_cell]],
-                colWidths=[0.55 * inch, 6.75 * inch],
-            )
+            rec_table = Table([[number_cell, body_cell]], colWidths=[0.55 * inch, 6.75 * inch])
             rec_table.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING",  (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING",   (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                 ("BACKGROUND", (0, 0), (-1, -1), HexColor("#fcfdfe")),
                 ("LINEBELOW", (0, 0), (-1, 0), 0.3, PDF_BORDER),
                 ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
                 ("LINEBEFORE", (0, 0), (0, -1), 3, PDF_ACCENT),
-                ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+                ("LINEAFTER", (-1, 0), (-1, -1), 0.3, PDF_BORDER),
             ]))
             elements.append(rec_table)
             elements.append(Spacer(1, 0.08 * inch))
-
     elements.append(PageBreak())
     return elements
 
 
 def _build_methodology_page(styles):
-    """Appendix: methodology, assumptions, and sourcing."""
     elements = []
-    elements.append(Paragraph("Appendix: Methodology &amp; Assumptions",
-                              styles["SectionHeading"]))
-
+    elements.append(Paragraph("Appendix: Methodology &amp; Assumptions", styles["SectionHeading"]))
     elements.append(Paragraph(
         "This simulator is built on conservative midpoints of publicly available "
         "pharma industry data. Every numeric assumption is visible in the "
         "underlying code and can be audited or overridden. This appendix "
         "documents the assumptions and their sources so the analysis is "
-        "defensible to a regulated-industry audience.",
-        styles["BodyText2"]
-    ))
+        "defensible to a regulated-industry audience. " + APP_DISCLAIMER,
+        styles["BodyText2"]))
     elements.append(Spacer(1, 0.15 * inch))
 
-    # Each section is a small heading + body
     def section(heading, body):
-        elements.append(Paragraph(
-            f"<b>{heading}</b>",
-            ParagraphStyle(
-                name="MethodSubsection",
-                parent=styles["BodyText2"],
-                fontName="Helvetica-Bold",
-                textColor=PDF_PRIMARY,
-                fontSize=11,
-                spaceAfter=4,
-                spaceBefore=8,
-            )
-        ))
+        elements.append(Paragraph(f"<b>{heading}</b>",
+            ParagraphStyle(name="MethodSubsection", parent=styles["BodyText2"],
+                fontName="Helvetica-Bold", textColor=PDF_PRIMARY,
+                fontSize=11, spaceAfter=4, spaceBefore=8)))
         elements.append(Paragraph(body, styles["BodyText2"]))
 
-    section(
-        "Readiness sub-score weightings",
+    section("Readiness sub-score weightings",
         "Process 30% · Organizational 30% · Regulatory 25% · Technical 15%. "
         "These weightings reflect mainstream pharma operations literature "
         "(McKinsey, Deloitte, ISPE), which consistently identifies organizational "
         "and process risks as the dominant causes of digital transformation "
-        "failure — ranking ahead of technical risks. Catalyx's own 2025 Line "
-        "Clearance Benchmark Report reinforces this: their finding that "
-        "&quot;pilots fail to scale&quot; is fundamentally an organizational and "
-        "process problem, not a technical one."
-    )
+        "failure — ranking ahead of technical risks. Public industry benchmark "
+        "data shows that pilot-to-production scaling remains a persistent "
+        "challenge across the sector.")
 
-    section(
-        "Verdict bands",
-        "80–100 Ready to scale · 65–79 Ready with caveats · 45–64 Not yet ready "
-        "· 0–44 High risk. Tightened upper-band cutoffs prevent false &quot;green "
-        "light&quot; verdicts for middling factories. Each band carries an "
-        "action-oriented verdict label rather than purely descriptive language."
-    )
+    section("Verdict bands",
+        "80–100 Ready to scale · 65–79 Ready with caveats · 45–64 Not yet ready · "
+        "0–44 High risk. Tightened upper-band cutoffs prevent false &quot;green "
+        "light&quot; verdicts for middling factories.")
 
-    section(
-        "Labor cost (fully-loaded operator)",
+    section("Labor cost (fully-loaded operator)",
         "Default: $65/hour. Source basis: US Bureau of Labor Statistics reports "
         "pharma manufacturing operator base wages of $25–30/hour. Fully-loaded "
-        "cost (benefits, overhead, supervision, indirect support) typically "
-        "runs 2.0–2.5x base, putting fully-loaded rate at ~$50–75/hour. We split "
-        "the middle at $65. EU plants run higher; emerging markets lower. "
-        "The user may override this in the Advanced section."
-    )
+        "cost typically runs 2.0–2.5x base, putting fully-loaded rate at "
+        "~$50–75/hour. EU plants run higher; emerging markets lower. The user "
+        "may override this in the Advanced section.")
 
-    section(
-        "Time savings from OpenLine",
-        "Default: 45% reduction in clearance duration. Catalyx publicly markets "
-        "85% faster line clearance. We deliberately halve that to 45% for "
-        "three reasons: (a) vendor performance claims are typically aspirational, "
-        "(b) real-world deployments capture only a fraction of demo-condition "
-        "gains, and (c) a defensible business case is built on conservative "
-        "assumptions, not best-case. If the rollout actually delivers 85%, that's "
-        "upside — we don't bake upside into the base case."
-    )
+    section("Time savings from AI line clearance",
+        "Default: 45% reduction in clearance duration. Industry-leading AI line "
+        "clearance vendors publicly market up to 85% faster clearance. We "
+        "deliberately halve that to 45% for three reasons: (a) vendor performance "
+        "claims are typically aspirational, (b) real-world deployments capture "
+        "only a fraction of demo-condition gains, and (c) a defensible business "
+        "case is built on conservative assumptions, not best-case.")
 
-    section(
-        "Per-line deployment cost",
+    section("Downtime cost (optional, user-supplied)",
+        "Default: $0/hour. Pharma production line downtime is genuinely costly "
+        "($2,000–$20,000+/hour depending on product line) but estimates vary "
+        "widely by product type and contract structure. Rather than embed an "
+        "inflated default, the simulator leaves this at $0 and allows the user "
+        "to add their own figure. The labor savings shown are therefore the "
+        "conservative floor; downtime recovery is acknowledged upside.")
+
+    section("Per-line deployment cost",
         "Defaults: $90,000 first line per facility · $55,000 each additional "
         "line in the same facility. Source basis: industry rule-of-thumb for "
         "enterprise machine vision deployments in pharma is $50K–$150K per "
-        "line depending on complexity. Catalyx has not published pricing "
-        "publicly, so we sit in the middle of the public range and assume the "
-        "typical bulk-discount pattern of enterprise software."
-    )
+        "line depending on complexity. We sit in the middle of the public range "
+        "and assume the typical bulk-discount pattern of enterprise software.")
 
-    section(
-        "Operational defaults",
+    section("Operational defaults",
         "Operators per clearance: 2 (operator + QA witness, per GMP). "
         "Production weeks per year: 48 (accounting for shutdowns, maintenance, "
-        "holidays — a standard pharma manufacturing assumption). "
-        "Duration-band midpoints: Under 30 min → 0.4h · 30–60 min → 0.75h · "
-        "1–2 hours → 1.5h · Over 2 hours → 2.5h (conservatively low — many "
-        "clearances over 2 hours actually run 3–4h)."
-    )
+        "holidays). Duration-band midpoints: Under 30 min → 0.4h · 30–60 min → "
+        "0.75h · 1–2 hours → 1.5h · Over 2 hours → 2.5h.")
 
-    section(
-        "What this simulator deliberately does not do",
-        "It does not integrate with any real Catalyx system or API. It does not "
+    section("What this simulator deliberately does not do",
+        "It does not integrate with any real vendor system or API. It does not "
         "simulate the AI vision detection itself — it is a business and operational "
-        "simulator, not a technical one. It does not generate IQ/OQ/PQ validation "
-        "documents (Catalyx already ships those with OpenLine). It does not require "
-        "login or save data. It does not claim ROI precision — it produces a "
-        "defensible range with stated assumptions. It is not a sales tool — it is "
-        "a neutral readiness assessment that happens to point toward OpenLine when "
-        "the readiness is there."
-    )
+        "simulator. It does not generate IQ/OQ/PQ validation documents. It does "
+        "not require login or save data. It does not claim ROI precision — it "
+        "produces a defensible range with stated assumptions. It is not a sales "
+        "tool — it is a neutral readiness assessment.")
 
-    section(
-        "About the underlying research",
-        "Catalyx's 2025 Life Sciences Line Clearance Benchmark Report surveyed "
-        "20,000+ pharma professionals. Key findings cited in this simulator: 63% "
-        "of life sciences manufacturers still rely on paper-based line clearance; "
-        "68% reported at least one line clearance deviation in the past year; "
-        "74% identified rogue components as the leading cause of clearance "
-        "failures; only 11% have digitized key components by 2025 despite ~50% "
-        "having piloted in 2023."
-    )
+    section("About the underlying research",
+        "The 2025 pharma line clearance benchmark research (industry survey of "
+        "20,000+ pharma professionals) is referenced for the simulator's "
+        "problem framing. Key public findings: 63% of life sciences manufacturers "
+        "still rely on paper-based line clearance; 68% reported at least one "
+        "line clearance deviation in the past year; 74% identified rogue components "
+        "as the leading cause of failures; only 11% have digitized key components "
+        "by 2025 despite ~50% having piloted in 2023.")
 
-    # No PageBreak at the end — this is the final page
     return elements
 
 
 def build_pdf(score, roi, risks, recommendations, inputs):
-    """
-    Build the full PDF and return a BytesIO buffer.
-    Phase 6C: cover + exec summary + factory profile + scorecard + financial
-              + risk register + recommendations + methodology appendix.
-    """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=LETTER,
         leftMargin=0.6 * inch, rightMargin=0.6 * inch,
         topMargin=0.65 * inch, bottomMargin=0.65 * inch,
-        title="OpenLine Readiness Simulator – Executive Summary",
-        author="OpenLine Readiness Simulator",
+        title="GMP Pilot-to-Production Readiness Simulator – Executive Summary",
+        author="GMP Pilot-to-Production Readiness Simulator",
     )
-
     styles = _pdf_styles()
-
     elements = []
     elements.extend(_build_cover_page(styles, score, roi))
     elements.extend(_build_executive_summary_page(
         styles, score, roi, risks, recommendations,
-        int(inputs["num_lines"]), int(inputs["num_facilities"]),
-    ))
+        int(inputs["num_lines"]), int(inputs["num_facilities"])))
     elements.extend(_build_factory_profile_page(styles, inputs))
     elements.extend(_build_scorecard_page(styles, score))
     elements.extend(_build_financial_page(styles, roi, inputs))
     elements.extend(_build_risk_register_page(styles, risks))
     elements.extend(_build_recommendations_page(styles, recommendations))
     elements.extend(_build_methodology_page(styles))
-
-    doc.build(elements, onFirstPage=_draw_page_chrome,
-              onLaterPages=_draw_page_chrome)
+    doc.build(elements, onFirstPage=_draw_page_chrome, onLaterPages=_draw_page_chrome)
     buffer.seek(0)
     return buffer
 
 
-def generate_pdf_for_download(
-    num_lines, num_facilities, annual_volume, product_type,
-    current_method, clearance_duration, changeovers_per_week, deviation_frequency,
-    mes_system, ebr_system, equipment_age,
-    inspection_outcome, validation_maturity,
-    operator_familiarity, prior_attempt,
-    labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
-):
-    """
-    Wired to the 'Download PDF' button. Runs the same computations as
-    process_form(), then assembles the full PDF.
-    """
-    score = compute_readiness_score(
-        current_method, clearance_duration, deviation_frequency,
-        operator_familiarity, prior_attempt,
-        inspection_outcome, validation_maturity,
-        mes_system, ebr_system, equipment_age,
-    )
-    roi = compute_roi(
-        num_lines, num_facilities, changeovers_per_week, clearance_duration,
-        labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
-    )
-    common_inputs = dict(
-        num_lines=num_lines, num_facilities=num_facilities,
-        current_method=current_method, clearance_duration=clearance_duration,
-        deviation_frequency=deviation_frequency,
-        mes_system=mes_system, ebr_system=ebr_system, equipment_age=equipment_age,
-        inspection_outcome=inspection_outcome, validation_maturity=validation_maturity,
-        operator_familiarity=operator_familiarity, prior_attempt=prior_attempt,
-    )
-    risks = compute_risk_heatmap(**common_inputs)
-    recommendations = compute_recommendations(**common_inputs)
-
-    # Full input bundle for the PDF (includes display/financial fields)
-    inputs = {
-        **common_inputs,
-        "annual_volume": annual_volume,
-        "product_type": product_type,
-        "changeovers_per_week": changeovers_per_week,
-        "labor_rate": labor_rate,
-        "time_savings_pct": time_savings_pct,
-        "first_line_cost": first_line_cost,
-        "additional_line_cost": additional_line_cost,
-    }
-
-    buf = build_pdf(score, roi, risks, recommendations, inputs)
-
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(
-        delete=False, suffix=".pdf",
-        prefix=f"OpenLine_Readiness_{datetime.date.today().isoformat()}_",
-    )
-    tmp.write(buf.read())
-    tmp.close()
-    return tmp.name
-
-
 # ============================================================================
-# UI HANDLER
+# UI HANDLERS
 # ============================================================================
 
-RATING_ICON = {
-    "Low":    "🟢 Low",
-    "Medium": "🟡 Medium",
-    "High":   "🔴 High",
-}
-
-def _fmt_money(x):
-    return f"${x:,.0f}"
+RATING_ICON = {"Low": "🟢 Low", "Medium": "🟡 Medium", "High": "🔴 High"}
 
 
 def process_form(
@@ -1749,35 +1504,30 @@ def process_form(
     inspection_outcome, validation_maturity,
     operator_familiarity, prior_attempt,
     labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+    downtime_cost_per_hour,
 ):
     score = compute_readiness_score(
         current_method, clearance_duration, deviation_frequency,
         operator_familiarity, prior_attempt,
         inspection_outcome, validation_maturity,
-        mes_system, ebr_system, equipment_age,
-    )
-
+        mes_system, ebr_system, equipment_age)
     roi = compute_roi(
         num_lines, num_facilities, changeovers_per_week, clearance_duration,
         labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
-    )
-
+        downtime_cost_per_hour)
     common_inputs = dict(
         num_lines=num_lines, num_facilities=num_facilities,
         current_method=current_method, clearance_duration=clearance_duration,
         deviation_frequency=deviation_frequency,
         mes_system=mes_system, ebr_system=ebr_system, equipment_age=equipment_age,
         inspection_outcome=inspection_outcome, validation_maturity=validation_maturity,
-        operator_familiarity=operator_familiarity, prior_attempt=prior_attempt,
-    )
-
+        operator_familiarity=operator_familiarity, prior_attempt=prior_attempt)
     risks = compute_risk_heatmap(**common_inputs)
     recommendations = compute_recommendations(**common_inputs)
 
     payback_text = (f"{roi['payback_months']:.1f} months"
         if roi["payback_months"] is not None else "N/A")
 
-    # Charts
     gauge_fig = build_readiness_gauge(score["total"])
     ladder_fig = build_subscore_ladder(
         score["process"], score["organizational"],
@@ -1787,11 +1537,12 @@ def process_form(
     payback_fig = build_payback_timeline(roi["payback_months"])
     risk_grid_fig = build_risk_heatmap_grid(risks)
 
-    # Headline card
+    # Headline card — now with 3-year net benefit
+    net_color = COLORS["risk_low"] if roi["three_year_net_benefit"] >= 0 else COLORS["risk_high"]
     headline_html = f"""
 <div id="headline-card">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:32px;flex-wrap:wrap;">
-    <div>
+    <div style="flex:1;min-width:280px;">
       <div style="font-size:13px;color:{COLORS['text_muted']};text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:6px;">
         Readiness Verdict
       </div>
@@ -1802,15 +1553,28 @@ def process_form(
         {score['verdict_message']}
       </div>
     </div>
-    <div style="text-align:right;border-left:1px solid {COLORS['border']};padding-left:32px;">
-      <div style="font-size:12px;color:{COLORS['text_muted']};text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:4px;">
-        Projected Payback
+    <div style="display:flex;gap:24px;">
+      <div style="text-align:right;border-left:1px solid {COLORS['border']};padding-left:24px;">
+        <div style="font-size:12px;color:{COLORS['text_muted']};text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:4px;">
+          Payback
+        </div>
+        <div style="font-size:24px;font-weight:700;color:{COLORS['accent']};line-height:1.1;">
+          {payback_text}
+        </div>
+        <div style="font-size:12px;color:{COLORS['text_muted']};margin-top:6px;">
+          Savings: <b>{_fmt_money(roi['annual_savings'])}/yr</b>
+        </div>
       </div>
-      <div style="font-size:28px;font-weight:700;color:{COLORS['accent']};line-height:1.1;">
-        {payback_text}
-      </div>
-      <div style="font-size:12px;color:{COLORS['text_muted']};margin-top:6px;">
-        Estimated annual savings: <b>{_fmt_money(roi['annual_savings'])}</b>
+      <div style="text-align:right;border-left:1px solid {COLORS['border']};padding-left:24px;">
+        <div style="font-size:12px;color:{COLORS['text_muted']};text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:4px;">
+          3-Yr Net Benefit
+        </div>
+        <div style="font-size:24px;font-weight:700;color:{net_color};line-height:1.1;">
+          {_fmt_money(roi['three_year_net_benefit'])}
+        </div>
+        <div style="font-size:12px;color:{COLORS['text_muted']};margin-top:6px;">
+          3 × savings − deploy cost
+        </div>
       </div>
     </div>
   </div>
@@ -1820,12 +1584,17 @@ def process_form(
     high_count = sum(1 for _, r, _ in risks if r == "High")
     med_count = sum(1 for _, r, _ in risks if r == "Medium")
     low_count = sum(1 for _, r, _ in risks if r == "Low")
-
     if recommendations:
         rec_block = "\n\n".join(f"{i+1}. {text}" for i, text in enumerate(recommendations))
     else:
         rec_block = ("**No critical remediation needed.** Your readiness score and "
             "risk profile suggest you can proceed directly to rollout planning.")
+
+    downtime_note = ""
+    if downtime_cost_per_hour > 0:
+        downtime_note = (
+            f"\n\n*Includes downtime cost of ${downtime_cost_per_hour:.0f}/hour, "
+            f"adding ${roi['downtime_savings']:,.0f}/year in downtime savings.*")
 
     roi_notes_md = f"""
 <div class="results-section">
@@ -1835,9 +1604,10 @@ def process_form(
 - **Annual clearance events:** {num_lines} lines × {changeovers_per_week} changeovers/week × 48 production weeks/year = **{roi['annual_events']:,} events**
 - **Labor hours per event:** {DURATION_TO_HOURS[clearance_duration]} hours × 2 operators (operator + QA witness, per GMP)
 - **Labor rate used:** {_fmt_money(labor_rate)}/hour fully-loaded
-- **Time savings applied:** {time_savings_pct}% (Catalyx publishes 85%; default conservatively halved)
+- **Time savings applied:** {time_savings_pct}% (industry leaders publish ~85%; default conservatively halved)
 - **Deployment cost:** {_fmt_money(first_line_cost)} per first line across {num_facilities} facilities, plus {_fmt_money(additional_line_cost)} per additional line
 - **Total deployment cost:** **{_fmt_money(roi['deployment_cost'])}**
+{downtime_note}
 
 </div>
 """
@@ -1855,12 +1625,9 @@ High-rated risks should be addressed before committing to a full rollout.*
 </div>
 """
 
-    # Full risk detail table (shown below the grid)
     risk_detail_rows = "\n".join(
         f"| {RATING_ICON[rating]} | **{name}** | {explanation} |"
-        for name, rating, explanation in risks
-    )
-
+        for name, rating, explanation in risks)
     risk_detail_md = f"""
 <div class="results-section">
 
@@ -1878,7 +1645,7 @@ High-rated risks should be addressed before committing to a full rollout.*
 
 ## Next-Steps Recommendation
 
-Actions to take *before* committing to a full OpenLine rollout, ordered by priority:
+Actions to take *before* committing to a full rollout, ordered by priority:
 
 {rec_block}
 
@@ -1892,34 +1659,105 @@ Actions to take *before* committing to a full OpenLine rollout, ordered by prior
     )
 
 
+def generate_pdf_for_download(
+    num_lines, num_facilities, annual_volume, product_type,
+    current_method, clearance_duration, changeovers_per_week, deviation_frequency,
+    mes_system, ebr_system, equipment_age,
+    inspection_outcome, validation_maturity,
+    operator_familiarity, prior_attempt,
+    labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+    downtime_cost_per_hour,
+):
+    score = compute_readiness_score(
+        current_method, clearance_duration, deviation_frequency,
+        operator_familiarity, prior_attempt,
+        inspection_outcome, validation_maturity,
+        mes_system, ebr_system, equipment_age)
+    roi = compute_roi(
+        num_lines, num_facilities, changeovers_per_week, clearance_duration,
+        labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+        downtime_cost_per_hour)
+    common_inputs = dict(
+        num_lines=num_lines, num_facilities=num_facilities,
+        current_method=current_method, clearance_duration=clearance_duration,
+        deviation_frequency=deviation_frequency,
+        mes_system=mes_system, ebr_system=ebr_system, equipment_age=equipment_age,
+        inspection_outcome=inspection_outcome, validation_maturity=validation_maturity,
+        operator_familiarity=operator_familiarity, prior_attempt=prior_attempt)
+    risks = compute_risk_heatmap(**common_inputs)
+    recommendations = compute_recommendations(**common_inputs)
+
+    inputs = {
+        **common_inputs,
+        "annual_volume": annual_volume,
+        "product_type": product_type,
+        "changeovers_per_week": changeovers_per_week,
+        "labor_rate": labor_rate,
+        "time_savings_pct": time_savings_pct,
+        "first_line_cost": first_line_cost,
+        "additional_line_cost": additional_line_cost,
+        "downtime_cost_per_hour": downtime_cost_per_hour,
+    }
+
+    buf = build_pdf(score, roi, risks, recommendations, inputs)
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pdf",
+        prefix=f"GMP_Readiness_{datetime.date.today().isoformat()}_")
+    tmp.write(buf.read())
+    tmp.close()
+    return tmp.name
+
+
+def load_sample_scenario():
+    """Returns a tuple matching the form's input order."""
+    s = SAMPLE_SCENARIO
+    return (
+        s["num_lines"], s["num_facilities"], s["annual_volume"], s["product_type"],
+        s["current_method"], s["clearance_duration"], s["changeovers_per_week"],
+        s["deviation_frequency"],
+        s["mes_system"], s["ebr_system"], s["equipment_age"],
+        s["inspection_outcome"], s["validation_maturity"],
+        s["operator_familiarity"], s["prior_attempt"],
+        s["labor_rate"], s["time_savings_pct"], s["first_line_cost"],
+        s["additional_line_cost"], s["downtime_cost_per_hour"],
+    )
+
+
 # ============================================================================
 # UI
 # ============================================================================
 
 HEADER_HTML = f"""
 <div id="header-banner">
-  <h1>OpenLine Readiness Simulator</h1>
-  <p>An assessment tool for pharma manufacturing leaders. Estimate readiness to roll out AI-powered line clearance — before committing budget. Built on Catalyx's own 2025 industry benchmark research, which found that only 11% of factories that piloted digital line clearance in 2023 had rolled it out by 2025.</p>
+  <h1>{APP_TITLE}</h1>
+  <p>{APP_TAGLINE} Built on publicly available 2025 pharma industry benchmark research showing that only 11% of factories that piloted digital line clearance in 2023 had rolled it out by 2025.</p>
+</div>
+<div id="disclaimer-strip">
+  <b>Disclaimer:</b> {APP_DISCLAIMER}
 </div>
 """
 
-with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
+with gr.Blocks(title=APP_TITLE, css=CUSTOM_CSS) as demo:
     gr.HTML(HEADER_HTML)
+
+    with gr.Row():
+        sample_btn = gr.Button("📋 Load sample pharma factory scenario",
+                               variant="secondary", size="sm")
 
     gr.Markdown(
         "### Instructions  \n"
         "Answer the 15 questions below. Sensible defaults are pre-filled — "
-        "adjust those that apply. Expand the *Advanced assumptions* section "
-        "to override the financial inputs. Click **Submit** for your full assessment."
-    )
+        "adjust those that apply. Click *Load sample scenario* for a realistic "
+        "mid-case pharma factory. Expand *Advanced assumptions* to override "
+        "financial inputs. Click **Run Assessment** for your full assessment.")
 
     with gr.Accordion("Section 1: Factory Profile", open=True):
         num_lines = gr.Slider(label="Number of production lines in scope for rollout",
             minimum=1, maximum=100, value=10, step=1)
         num_facilities = gr.Slider(label="Number of facilities involved",
             minimum=1, maximum=20, value=2, step=1)
-        annual_volume = gr.Radio(
-            label="Approximate annual production volume",
+        annual_volume = gr.Radio(label="Approximate annual production volume",
             choices=["Under 1 million units", "1–10 million units",
                 "10–100 million units", "Over 100 million units"],
             value="1–10 million units")
@@ -1932,13 +1770,11 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
             choices=list(SCORE_CURRENT_METHOD.keys()),
             value="Hybrid (some digital, some paper)")
         clearance_duration = gr.Radio(label="Average line clearance duration today",
-            choices=list(SCORE_CLEARANCE_DURATION.keys()),
-            value="1–2 hours")
+            choices=list(SCORE_CLEARANCE_DURATION.keys()), value="1–2 hours")
         changeovers_per_week = gr.Slider(label="Average number of changeovers per line per week",
             minimum=1, maximum=30, value=5, step=1)
         deviation_frequency = gr.Radio(label="Line clearance deviations in the past 12 months",
-            choices=list(SCORE_DEVIATION_FREQUENCY.keys()),
-            value="3–5")
+            choices=list(SCORE_DEVIATION_FREQUENCY.keys()), value="3–5")
 
     with gr.Accordion("Section 3: IT and Integration Landscape", open=True):
         mes_system = gr.Radio(label="Existing Manufacturing Execution System (MES)",
@@ -1959,8 +1795,7 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
 
     with gr.Accordion("Section 5: Workforce and Change-Management Context", open=True):
         operator_familiarity = gr.Radio(label="Operator digital tool familiarity",
-            choices=list(SCORE_OPERATOR_FAMILIARITY.keys()),
-            value="Medium")
+            choices=list(SCORE_OPERATOR_FAMILIARITY.keys()), value="Medium")
         prior_attempt = gr.Radio(
             label="Has your facility ever attempted a line clearance digitization project before?",
             choices=list(SCORE_PRIOR_ATTEMPT.keys()),
@@ -1970,17 +1805,23 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
         gr.Markdown("These defaults come from publicly available industry data. "
             "Adjust any of them to reflect your own assumptions.")
         labor_rate = gr.Slider(label="Fully-loaded operator labor rate (USD per hour)",
-            minimum=20, maximum=150,
-            value=DEFAULT_LABOR_RATE_USD_PER_HOUR, step=5)
-        time_savings_pct = gr.Slider(label="Expected time savings from OpenLine (%)",
-            minimum=10, maximum=85,
-            value=DEFAULT_TIME_SAVINGS_PCT, step=5)
+            minimum=20, maximum=150, value=DEFAULT_LABOR_RATE_USD_PER_HOUR, step=5)
+        time_savings_pct = gr.Slider(label="Expected time savings from AI line clearance (%)",
+            minimum=10, maximum=85, value=DEFAULT_TIME_SAVINGS_PCT, step=5)
         first_line_cost = gr.Slider(label="First line deployment cost per facility (USD)",
             minimum=30_000, maximum=200_000,
             value=DEFAULT_FIRST_LINE_COST_USD, step=5_000)
         additional_line_cost = gr.Slider(label="Additional line deployment cost (same facility, USD)",
             minimum=20_000, maximum=150_000,
             value=DEFAULT_ADDITIONAL_LINE_COST_USD, step=5_000)
+        downtime_cost_per_hour = gr.Slider(
+            label="Production downtime cost per hour (USD) — optional, defaults to $0",
+            minimum=0, maximum=25_000,
+            value=DEFAULT_DOWNTIME_COST_PER_HOUR_USD, step=500)
+        gr.Markdown(
+            "<small><i>Downtime cost defaults to $0 to keep the base case conservative. "
+            "Add your own value to model the additional savings from reduced line "
+            "downtime during changeovers.</i></small>")
 
     submit_btn = gr.Button("Run Assessment", variant="primary", size="lg")
 
@@ -1996,7 +1837,7 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
     gr.Markdown("## Financial Projection (ROI)")
     with gr.Row():
         roi_compare_out = gr.Plot(label="Annual cost: before vs after")
-        payback_out = gr.Plot(label="Payback period")
+        payback_out = gr.Plot(label="Payback period with break-even marker")
     roi_notes_out = gr.Markdown()
 
     gr.Markdown("## Risk Heatmap")
@@ -2006,16 +1847,21 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
 
     recommendations_out = gr.Markdown()
 
+    all_inputs = [
+        num_lines, num_facilities, annual_volume, product_type,
+        current_method, clearance_duration, changeovers_per_week, deviation_frequency,
+        mes_system, ebr_system, equipment_age,
+        inspection_outcome, validation_maturity,
+        operator_familiarity, prior_attempt,
+        labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+        downtime_cost_per_hour,
+    ]
+
+    sample_btn.click(fn=load_sample_scenario, inputs=[], outputs=all_inputs)
+
     submit_btn.click(
         fn=process_form,
-        inputs=[
-            num_lines, num_facilities, annual_volume, product_type,
-            current_method, clearance_duration, changeovers_per_week, deviation_frequency,
-            mes_system, ebr_system, equipment_age,
-            inspection_outcome, validation_maturity,
-            operator_familiarity, prior_attempt,
-            labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
-        ],
+        inputs=all_inputs,
         outputs=[
             headline_out, gauge_out, ladder_out,
             roi_compare_out, payback_out, roi_notes_out,
@@ -2025,14 +1871,7 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
 
     pdf_btn.click(
         fn=generate_pdf_for_download,
-        inputs=[
-            num_lines, num_facilities, annual_volume, product_type,
-            current_method, clearance_duration, changeovers_per_week, deviation_frequency,
-            mes_system, ebr_system, equipment_age,
-            inspection_outcome, validation_maturity,
-            operator_familiarity, prior_attempt,
-            labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
-        ],
+        inputs=all_inputs,
         outputs=pdf_file,
     )
 
