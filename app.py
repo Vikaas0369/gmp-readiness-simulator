@@ -1360,10 +1360,286 @@ def _build_financial_page(styles, roi, inputs):
     return elements
 
 
+def _build_risk_register_page(styles, risks):
+    """Page showing the full 8-risk register with rating + rationale."""
+    elements = []
+    elements.append(Paragraph("Risk Register", styles["SectionHeading"]))
+
+    high_count = sum(1 for _, r, _ in risks if r == "High")
+    med_count  = sum(1 for _, r, _ in risks if r == "Medium")
+    low_count  = sum(1 for _, r, _ in risks if r == "Low")
+
+    elements.append(Paragraph(
+        f"Eight risks evaluated by rule-based logic against the inputs. "
+        f"<font color='{COLORS['risk_high']}'><b>{high_count} High</b></font> · "
+        f"<font color='{COLORS['risk_medium']}'><b>{med_count} Medium</b></font> · "
+        f"<font color='{COLORS['risk_low']}'><b>{low_count} Low</b></font>.",
+        styles["BodyText2"]
+    ))
+    elements.append(Paragraph(
+        "Each rationale references the specific inputs that drove its rating. "
+        "Risks rated High should be addressed before committing to a full rollout; "
+        "risks rated Medium typically resolve during rollout if proactively managed.",
+        styles["Caption"]
+    ))
+    elements.append(Spacer(1, 0.15 * inch))
+
+    rating_color = {
+        "High":   COLORS["risk_high"],
+        "Medium": COLORS["risk_medium"],
+        "Low":    COLORS["risk_low"],
+    }
+    rating_bg = {
+        "High":   HexColor("#f5e0e0"),
+        "Medium": HexColor("#fbeed3"),
+        "Low":    HexColor("#dfe9e0"),
+    }
+
+    # Header row
+    header = [
+        Paragraph("<b>Rating</b>", styles["BodyText2"]),
+        Paragraph("<b>Risk</b>", styles["BodyText2"]),
+        Paragraph("<b>Why this rating</b>", styles["BodyText2"]),
+    ]
+    rows = [header]
+    style_commands = [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING",   (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
+        ("BACKGROUND", (0, 0), (-1, 0), PDF_PANEL_BG),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, PDF_ACCENT),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.3, PDF_BORDER),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.3, PDF_BORDER),
+        ("LINEBEFORE", (0, 0), (0, -1), 0.3, PDF_BORDER),
+        ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+    ]
+
+    for idx, (name, rating, explanation) in enumerate(risks):
+        row_idx = idx + 1  # +1 for header
+        # Color the rating cell background based on rating
+        style_commands.append(
+            ("BACKGROUND", (0, row_idx), (0, row_idx), rating_bg[rating])
+        )
+        rating_cell = Paragraph(
+            f"<font color='{rating_color[rating]}'><b>{rating.upper()}</b></font>",
+            styles["BodyText2"]
+        )
+        name_cell = Paragraph(f"<b>{name}</b>", styles["BodyText2"])
+        expl_cell = Paragraph(explanation, styles["BodyText2"])
+        rows.append([rating_cell, name_cell, expl_cell])
+
+    risk_table = Table(rows,
+                       colWidths=[0.85 * inch, 2.0 * inch, 4.45 * inch])
+    risk_table.setStyle(TableStyle(style_commands))
+    elements.append(risk_table)
+
+    elements.append(PageBreak())
+    return elements
+
+
+def _build_recommendations_page(styles, recommendations):
+    """Page showing the prioritized next-steps recommendations."""
+    elements = []
+    elements.append(Paragraph("Next-Steps Recommendations", styles["SectionHeading"]))
+
+    elements.append(Paragraph(
+        "Prioritized actions to take <i>before</i> committing to a full OpenLine "
+        "rollout. Order reflects how pharma operations leaders typically sequence "
+        "remediation: regulatory blockers first, then organizational scar tissue, "
+        "then foundational technical gaps, then process improvements, then tactical "
+        "optimizations.",
+        styles["BodyText2"]
+    ))
+    elements.append(Spacer(1, 0.15 * inch))
+
+    if not recommendations:
+        elements.append(Paragraph(
+            "<b>No critical remediation required.</b> Your readiness score and "
+            "risk profile suggest you can proceed directly to rollout planning. "
+            "Standard project hygiene applies: secure budget, set milestones, "
+            "and define success metrics before kickoff.",
+            styles["BodyText2"]
+        ))
+    else:
+        # Numbered list with each recommendation in its own card-ish row
+        for idx, text in enumerate(recommendations):
+            # Strip markdown bold marks (** → just keep the content)
+            clean = text.replace("**", "")
+            # Split title and body if the text starts with a bolded header
+            # (recommendations from compute_recommendations() begin with a sentence
+            # that we'll show as the action header)
+            if ". " in clean:
+                head, _, tail = clean.partition(". ")
+                head = head.strip() + "."
+                tail = tail.strip()
+                rec_text = f"<b>{head}</b> {tail}"
+            else:
+                rec_text = clean
+
+            number_cell = Paragraph(
+                f"<font color='{COLORS['accent']}'><b>{idx + 1}</b></font>",
+                ParagraphStyle(
+                    name="RecNumber",
+                    parent=styles["BodyText2"],
+                    fontSize=18,
+                    leading=22,
+                    alignment=TA_CENTER,
+                    textColor=PDF_ACCENT,
+                )
+            )
+            body_cell = Paragraph(rec_text, styles["BodyText2"])
+
+            rec_table = Table(
+                [[number_cell, body_cell]],
+                colWidths=[0.55 * inch, 6.75 * inch],
+            )
+            rec_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING",   (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+                ("BACKGROUND", (0, 0), (-1, -1), HexColor("#fcfdfe")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.3, PDF_BORDER),
+                ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
+                ("LINEBEFORE", (0, 0), (0, -1), 3, PDF_ACCENT),
+                ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+            ]))
+            elements.append(rec_table)
+            elements.append(Spacer(1, 0.08 * inch))
+
+    elements.append(PageBreak())
+    return elements
+
+
+def _build_methodology_page(styles):
+    """Appendix: methodology, assumptions, and sourcing."""
+    elements = []
+    elements.append(Paragraph("Appendix: Methodology &amp; Assumptions",
+                              styles["SectionHeading"]))
+
+    elements.append(Paragraph(
+        "This simulator is built on conservative midpoints of publicly available "
+        "pharma industry data. Every numeric assumption is visible in the "
+        "underlying code and can be audited or overridden. This appendix "
+        "documents the assumptions and their sources so the analysis is "
+        "defensible to a regulated-industry audience.",
+        styles["BodyText2"]
+    ))
+    elements.append(Spacer(1, 0.15 * inch))
+
+    # Each section is a small heading + body
+    def section(heading, body):
+        elements.append(Paragraph(
+            f"<b>{heading}</b>",
+            ParagraphStyle(
+                name="MethodSubsection",
+                parent=styles["BodyText2"],
+                fontName="Helvetica-Bold",
+                textColor=PDF_PRIMARY,
+                fontSize=11,
+                spaceAfter=4,
+                spaceBefore=8,
+            )
+        ))
+        elements.append(Paragraph(body, styles["BodyText2"]))
+
+    section(
+        "Readiness sub-score weightings",
+        "Process 30% · Organizational 30% · Regulatory 25% · Technical 15%. "
+        "These weightings reflect mainstream pharma operations literature "
+        "(McKinsey, Deloitte, ISPE), which consistently identifies organizational "
+        "and process risks as the dominant causes of digital transformation "
+        "failure — ranking ahead of technical risks. Catalyx's own 2025 Line "
+        "Clearance Benchmark Report reinforces this: their finding that "
+        "&quot;pilots fail to scale&quot; is fundamentally an organizational and "
+        "process problem, not a technical one."
+    )
+
+    section(
+        "Verdict bands",
+        "80–100 Ready to scale · 65–79 Ready with caveats · 45–64 Not yet ready "
+        "· 0–44 High risk. Tightened upper-band cutoffs prevent false &quot;green "
+        "light&quot; verdicts for middling factories. Each band carries an "
+        "action-oriented verdict label rather than purely descriptive language."
+    )
+
+    section(
+        "Labor cost (fully-loaded operator)",
+        "Default: $65/hour. Source basis: US Bureau of Labor Statistics reports "
+        "pharma manufacturing operator base wages of $25–30/hour. Fully-loaded "
+        "cost (benefits, overhead, supervision, indirect support) typically "
+        "runs 2.0–2.5x base, putting fully-loaded rate at ~$50–75/hour. We split "
+        "the middle at $65. EU plants run higher; emerging markets lower. "
+        "The user may override this in the Advanced section."
+    )
+
+    section(
+        "Time savings from OpenLine",
+        "Default: 45% reduction in clearance duration. Catalyx publicly markets "
+        "85% faster line clearance. We deliberately halve that to 45% for "
+        "three reasons: (a) vendor performance claims are typically aspirational, "
+        "(b) real-world deployments capture only a fraction of demo-condition "
+        "gains, and (c) a defensible business case is built on conservative "
+        "assumptions, not best-case. If the rollout actually delivers 85%, that's "
+        "upside — we don't bake upside into the base case."
+    )
+
+    section(
+        "Per-line deployment cost",
+        "Defaults: $90,000 first line per facility · $55,000 each additional "
+        "line in the same facility. Source basis: industry rule-of-thumb for "
+        "enterprise machine vision deployments in pharma is $50K–$150K per "
+        "line depending on complexity. Catalyx has not published pricing "
+        "publicly, so we sit in the middle of the public range and assume the "
+        "typical bulk-discount pattern of enterprise software."
+    )
+
+    section(
+        "Operational defaults",
+        "Operators per clearance: 2 (operator + QA witness, per GMP). "
+        "Production weeks per year: 48 (accounting for shutdowns, maintenance, "
+        "holidays — a standard pharma manufacturing assumption). "
+        "Duration-band midpoints: Under 30 min → 0.4h · 30–60 min → 0.75h · "
+        "1–2 hours → 1.5h · Over 2 hours → 2.5h (conservatively low — many "
+        "clearances over 2 hours actually run 3–4h)."
+    )
+
+    section(
+        "What this simulator deliberately does not do",
+        "It does not integrate with any real Catalyx system or API. It does not "
+        "simulate the AI vision detection itself — it is a business and operational "
+        "simulator, not a technical one. It does not generate IQ/OQ/PQ validation "
+        "documents (Catalyx already ships those with OpenLine). It does not require "
+        "login or save data. It does not claim ROI precision — it produces a "
+        "defensible range with stated assumptions. It is not a sales tool — it is "
+        "a neutral readiness assessment that happens to point toward OpenLine when "
+        "the readiness is there."
+    )
+
+    section(
+        "About the underlying research",
+        "Catalyx's 2025 Life Sciences Line Clearance Benchmark Report surveyed "
+        "20,000+ pharma professionals. Key findings cited in this simulator: 63% "
+        "of life sciences manufacturers still rely on paper-based line clearance; "
+        "68% reported at least one line clearance deviation in the past year; "
+        "74% identified rogue components as the leading cause of clearance "
+        "failures; only 11% have digitized key components by 2025 despite ~50% "
+        "having piloted in 2023."
+    )
+
+    # No PageBreak at the end — this is the final page
+    return elements
+
+
 def build_pdf(score, roi, risks, recommendations, inputs):
     """
-    Build the PDF and return a BytesIO buffer.
-    Phase 6B: cover + exec summary + factory profile + scorecard + financial.
+    Build the full PDF and return a BytesIO buffer.
+    Phase 6C: cover + exec summary + factory profile + scorecard + financial
+              + risk register + recommendations + methodology appendix.
     """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -1385,13 +1661,9 @@ def build_pdf(score, roi, risks, recommendations, inputs):
     elements.extend(_build_factory_profile_page(styles, inputs))
     elements.extend(_build_scorecard_page(styles, score))
     elements.extend(_build_financial_page(styles, roi, inputs))
-
-    # Placeholder for Phase 6C
-    elements.append(Paragraph(
-        "Risk register, next-steps recommendations, and methodology "
-        "appendix will appear here in Phase 6C.",
-        styles["BodyText2"]
-    ))
+    elements.extend(_build_risk_register_page(styles, risks))
+    elements.extend(_build_recommendations_page(styles, recommendations))
+    elements.extend(_build_methodology_page(styles))
 
     doc.build(elements, onFirstPage=_draw_page_chrome,
               onLaterPages=_draw_page_chrome)
