@@ -1,6 +1,18 @@
 import gradio as gr
 import plotly.graph_objects as go
 
+import io
+import datetime
+from reportlab.lib.pagesizes import LETTER
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.colors import HexColor
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    PageBreak, KeepTogether,
+)
+
 # ============================================================================
 # OpenLine Readiness Simulator
 # Phase 5C: Risk Heatmap as visual grid
@@ -778,6 +790,399 @@ def _wrap_text(text, max_chars=24, max_lines=3):
 
     return "<br>".join(lines)
 
+# ============================================================================
+# PDF BUILDER (Phase 6A: cover page + executive summary)
+# ============================================================================
+
+# Reusable PDF colors (HexColor objects from our design system)
+PDF_PRIMARY    = HexColor(COLORS["primary"])
+PDF_ACCENT     = HexColor(COLORS["accent"])
+PDF_SECONDARY  = HexColor(COLORS["secondary"])
+PDF_HIGH       = HexColor(COLORS["risk_high"])
+PDF_LOW        = HexColor(COLORS["risk_low"])
+PDF_TEXT_MUTED = HexColor(COLORS["text_muted"])
+PDF_BORDER     = HexColor(COLORS["border"])
+PDF_PANEL_BG   = HexColor(COLORS["panel_bg"])
+
+
+def _pdf_styles():
+    """Build a stylesheet for the PDF."""
+    styles = getSampleStyleSheet()
+
+    # Override / add custom styles
+    styles.add(ParagraphStyle(
+        name="CoverTitle",
+        fontName="Helvetica-Bold",
+        fontSize=28,
+        leading=34,
+        textColor=PDF_PRIMARY,
+        alignment=TA_LEFT,
+        spaceAfter=12,
+    ))
+    styles.add(ParagraphStyle(
+        name="CoverSubtitle",
+        fontName="Helvetica",
+        fontSize=14,
+        leading=20,
+        textColor=PDF_TEXT_MUTED,
+        alignment=TA_LEFT,
+        spaceAfter=18,
+    ))
+    styles.add(ParagraphStyle(
+        name="CoverMeta",
+        fontName="Helvetica",
+        fontSize=10,
+        leading=14,
+        textColor=PDF_TEXT_MUTED,
+        alignment=TA_LEFT,
+    ))
+    styles.add(ParagraphStyle(
+        name="SectionHeading",
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=20,
+        textColor=PDF_PRIMARY,
+        spaceBefore=8,
+        spaceAfter=12,
+        borderColor=PDF_ACCENT,
+        borderWidth=0,
+        borderPadding=0,
+    ))
+    styles.add(ParagraphStyle(
+        name="EyebrowLabel",
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        leading=12,
+        textColor=PDF_TEXT_MUTED,
+        spaceAfter=4,
+    ))
+    styles.add(ParagraphStyle(
+        name="HeroNumber",
+        fontName="Helvetica-Bold",
+        fontSize=36,
+        leading=40,
+        textColor=PDF_PRIMARY,
+        spaceAfter=4,
+    ))
+    styles.add(ParagraphStyle(
+        name="HeroVerdict",
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        leading=22,
+        textColor=PDF_PRIMARY,
+        spaceAfter=6,
+    ))
+    styles.add(ParagraphStyle(
+        name="BodyText2",
+        fontName="Helvetica",
+        fontSize=10,
+        leading=15,
+        textColor=PDF_PRIMARY,
+        spaceAfter=8,
+    ))
+    styles.add(ParagraphStyle(
+        name="Caption",
+        fontName="Helvetica-Oblique",
+        fontSize=8.5,
+        leading=12,
+        textColor=PDF_TEXT_MUTED,
+        spaceAfter=6,
+    ))
+    return styles
+
+
+def _draw_cover_decorations(canvas, doc):
+    """Draw decorative elements on the cover page only."""
+    if doc.page == 1:
+        # Top navy band
+        canvas.saveState()
+        canvas.setFillColor(PDF_PRIMARY)
+        canvas.rect(0, LETTER[1] - 0.5 * inch, LETTER[0], 0.5 * inch,
+                    stroke=0, fill=1)
+        # Bottom teal accent bar
+        canvas.setFillColor(PDF_ACCENT)
+        canvas.rect(0.5 * inch, 0.5 * inch, 1.5 * inch, 4, stroke=0, fill=1)
+        canvas.restoreState()
+
+
+def _draw_page_chrome(canvas, doc):
+    """Header and footer drawn on every page except the cover."""
+    if doc.page > 1:
+        canvas.saveState()
+        # Top thin line
+        canvas.setStrokeColor(PDF_BORDER)
+        canvas.setLineWidth(0.5)
+        canvas.line(0.5 * inch, LETTER[1] - 0.4 * inch,
+                    LETTER[0] - 0.5 * inch, LETTER[1] - 0.4 * inch)
+        # Header text (left)
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(PDF_TEXT_MUTED)
+        canvas.drawString(0.5 * inch, LETTER[1] - 0.3 * inch,
+                          "OpenLine Readiness Simulator  ·  Executive Summary")
+        # Page number (right)
+        canvas.drawRightString(LETTER[0] - 0.5 * inch, LETTER[1] - 0.3 * inch,
+                               f"Page {doc.page}")
+        # Bottom thin line
+        canvas.line(0.5 * inch, 0.5 * inch,
+                    LETTER[0] - 0.5 * inch, 0.5 * inch)
+        canvas.setFont("Helvetica-Oblique", 7.5)
+        canvas.drawString(0.5 * inch, 0.35 * inch,
+                          "Confidential — generated by OpenLine Readiness Simulator")
+        canvas.restoreState()
+    _draw_cover_decorations(canvas, doc)
+
+
+def _build_cover_page(styles, score, roi):
+    """Cover page elements."""
+    elements = []
+    elements.append(Spacer(1, 1.4 * inch))
+
+    elements.append(Paragraph("OpenLine Readiness Simulator", styles["CoverTitle"]))
+    elements.append(Paragraph(
+        "Executive Summary &amp; Business Case",
+        styles["CoverSubtitle"]
+    ))
+
+    elements.append(Spacer(1, 0.4 * inch))
+
+    # A big preview of the headline numbers (verdict + payback)
+    payback_str = (f"{roi['payback_months']:.1f} months"
+                   if roi["payback_months"] is not None else "N/A")
+
+    hero_data = [
+        [
+            Paragraph("READINESS VERDICT", styles["EyebrowLabel"]),
+            Paragraph("PROJECTED PAYBACK", styles["EyebrowLabel"]),
+        ],
+        [
+            Paragraph(score["verdict_label"], styles["HeroVerdict"]),
+            Paragraph(payback_str, ParagraphStyle(
+                name="PaybackHero",
+                parent=styles["HeroVerdict"],
+                textColor=PDF_ACCENT,
+            )),
+        ],
+        [
+            Paragraph(f"Score: <b>{score['total']} / 100</b>", styles["BodyText2"]),
+            Paragraph(f"Annual savings: <b>${roi['annual_savings']:,.0f}</b>",
+                      styles["BodyText2"]),
+        ],
+    ]
+    hero_table = Table(hero_data, colWidths=[3.5 * inch, 3.5 * inch])
+    hero_table.setStyle(TableStyle([
+        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 14),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+        ("TOPPADDING",   (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 10),
+        ("BACKGROUND", (0, 0), (-1, -1), PDF_PANEL_BG),
+        ("LINEABOVE",  (0, 0), (-1, 0), 0.5, PDF_BORDER),
+        ("LINEBELOW",  (0, -1), (-1, -1), 0.5, PDF_BORDER),
+        ("LINEBEFORE", (0, 0), (0, -1), 0.5, PDF_BORDER),
+        ("LINEAFTER",  (-1, 0), (-1, -1), 0.5, PDF_BORDER),
+        ("LINEBEFORE", (1, 0), (1, -1), 0.5, PDF_BORDER),
+    ]))
+    elements.append(hero_table)
+
+    elements.append(Spacer(1, 0.5 * inch))
+
+    # Metadata block at the bottom of the cover
+    today = datetime.date.today().strftime("%B %d, %Y")
+    elements.append(Paragraph(
+        f"<b>Generated:</b> {today}<br/>"
+        f"<b>Confidentiality:</b> Internal business case — not for external distribution<br/>"
+        f"<b>Methodology:</b> See appendix for full assumptions and sourcing",
+        styles["CoverMeta"]
+    ))
+
+    elements.append(PageBreak())
+    return elements
+
+
+def _build_executive_summary_page(styles, score, roi, risks, recommendations,
+                                  num_lines, num_facilities):
+    """Page 2: the one-page executive overview."""
+    elements = []
+
+    elements.append(Paragraph("Executive Summary", styles["SectionHeading"]))
+    # Underline for section heading (manual since we can't easily style borders in ParagraphStyle)
+    elements.append(Spacer(1, 0.02 * inch))
+
+    # Three-column metric strip (Score / Payback / Savings)
+    payback_str = (f"{roi['payback_months']:.1f} mo"
+                   if roi["payback_months"] is not None else "N/A")
+
+    metric_data = [
+        [
+            Paragraph("READINESS SCORE", styles["EyebrowLabel"]),
+            Paragraph("PAYBACK", styles["EyebrowLabel"]),
+            Paragraph("ANNUAL SAVINGS", styles["EyebrowLabel"]),
+        ],
+        [
+            Paragraph(f"{score['total']}", styles["HeroNumber"]),
+            Paragraph(payback_str, styles["HeroNumber"]),
+            Paragraph(f"${roi['annual_savings']/1000:,.0f}K", styles["HeroNumber"]),
+        ],
+        [
+            Paragraph(score["verdict_label"], styles["BodyText2"]),
+            Paragraph("vs. 24-month threshold", styles["Caption"]),
+            Paragraph(f"per year at {num_lines} lines", styles["Caption"]),
+        ],
+    ]
+    metric_table = Table(metric_data,
+                         colWidths=[2.33 * inch, 2.33 * inch, 2.33 * inch])
+    metric_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 14),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+        ("TOPPADDING",   (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+        ("BACKGROUND",   (0, 0), (-1, -1), PDF_PANEL_BG),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.5, PDF_BORDER),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.5, PDF_BORDER),
+        ("LINEBEFORE", (0, 0), (0, -1), 0.5, PDF_BORDER),
+        ("LINEAFTER",  (-1, 0), (-1, -1), 0.5, PDF_BORDER),
+        # Internal dividers
+        ("LINEBEFORE", (1, 0), (1, -1), 0.5, PDF_BORDER),
+        ("LINEBEFORE", (2, 0), (2, -1), 0.5, PDF_BORDER),
+    ]))
+    elements.append(metric_table)
+
+    elements.append(Spacer(1, 0.3 * inch))
+
+    # Narrative paragraphs
+    high_count = sum(1 for _, r, _ in risks if r == "High")
+    med_count  = sum(1 for _, r, _ in risks if r == "Medium")
+    low_count  = sum(1 for _, r, _ in risks if r == "Low")
+
+    elements.append(Paragraph("<b>Assessment overview</b>", styles["BodyText2"]))
+    elements.append(Paragraph(
+        f"{score['verdict_message']}",
+        styles["BodyText2"]
+    ))
+
+    elements.append(Paragraph("<b>Risk profile</b>", styles["BodyText2"]))
+    elements.append(Paragraph(
+        f"Of the 8 evaluated risks: "
+        f"<font color='{COLORS['risk_high']}'><b>{high_count} are rated High</b></font>, "
+        f"<font color='{COLORS['risk_medium']}'><b>{med_count} are Medium</b></font>, and "
+        f"<font color='{COLORS['risk_low']}'><b>{low_count} are Low</b></font>. "
+        "Detailed rationale follows in the Risk Register section.",
+        styles["BodyText2"]
+    ))
+
+    elements.append(Paragraph("<b>Scope under assessment</b>", styles["BodyText2"]))
+    elements.append(Paragraph(
+        f"{num_lines} production lines across {num_facilities} "
+        f"{'facility' if num_facilities == 1 else 'facilities'}. "
+        f"Estimated total deployment cost of <b>${roi['deployment_cost']:,.0f}</b>, "
+        f"against current annual line clearance cost of "
+        f"<b>${roi['current_annual_cost']:,.0f}</b>.",
+        styles["BodyText2"]
+    ))
+
+    # Top recommendation preview
+    if recommendations:
+        elements.append(Spacer(1, 0.15 * inch))
+        elements.append(Paragraph("<b>Top recommendation</b>", styles["BodyText2"]))
+        # Strip markdown bold marks for clean PDF rendering
+        top_rec = recommendations[0].replace("**", "")
+        elements.append(Paragraph(top_rec, styles["BodyText2"]))
+        remaining = len(recommendations) - 1
+        if remaining > 0:
+            elements.append(Paragraph(
+                f"<i>{remaining} additional recommendation{'s' if remaining > 1 else ''} follow in the Next Steps section.</i>",
+                styles["Caption"]
+            ))
+
+    elements.append(PageBreak())
+    return elements
+
+
+def build_pdf(score, roi, risks, recommendations,
+              num_lines, num_facilities, *_extra):
+    """
+    Build the PDF and return a BytesIO buffer.
+    Phase 6A: cover + executive summary.
+    Phases 6B and 6C will add the remaining sections.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=LETTER,
+        leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+        topMargin=0.65 * inch, bottomMargin=0.65 * inch,
+        title="OpenLine Readiness Simulator – Executive Summary",
+        author="OpenLine Readiness Simulator",
+    )
+
+    styles = _pdf_styles()
+
+    elements = []
+    elements.extend(_build_cover_page(styles, score, roi))
+    elements.extend(_build_executive_summary_page(
+        styles, score, roi, risks, recommendations,
+        num_lines, num_facilities,
+    ))
+
+    # Placeholder closing page (will be replaced in 6B/6C)
+    elements.append(Paragraph(
+        "Additional sections (scorecard, ROI detail, risk register, "
+        "recommendations, and methodology) will appear here in later phases.",
+        styles["BodyText2"]
+    ))
+
+    doc.build(elements, onFirstPage=_draw_page_chrome,
+              onLaterPages=_draw_page_chrome)
+    buffer.seek(0)
+    return buffer
+
+
+def generate_pdf_for_download(
+    num_lines, num_facilities, annual_volume, product_type,
+    current_method, clearance_duration, changeovers_per_week, deviation_frequency,
+    mes_system, ebr_system, equipment_age,
+    inspection_outcome, validation_maturity,
+    operator_familiarity, prior_attempt,
+    labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+):
+    """
+    Wired to the 'Download PDF' button. Runs the same computations as
+    process_form(), but returns a downloadable file path.
+    """
+    score = compute_readiness_score(
+        current_method, clearance_duration, deviation_frequency,
+        operator_familiarity, prior_attempt,
+        inspection_outcome, validation_maturity,
+        mes_system, ebr_system, equipment_age,
+    )
+    roi = compute_roi(
+        num_lines, num_facilities, changeovers_per_week, clearance_duration,
+        labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+    )
+    common_inputs = dict(
+        num_lines=num_lines, num_facilities=num_facilities,
+        current_method=current_method, clearance_duration=clearance_duration,
+        deviation_frequency=deviation_frequency,
+        mes_system=mes_system, ebr_system=ebr_system, equipment_age=equipment_age,
+        inspection_outcome=inspection_outcome, validation_maturity=validation_maturity,
+        operator_familiarity=operator_familiarity, prior_attempt=prior_attempt,
+    )
+    risks = compute_risk_heatmap(**common_inputs)
+    recommendations = compute_recommendations(**common_inputs)
+
+    buf = build_pdf(score, roi, risks, recommendations,
+                    int(num_lines), int(num_facilities))
+
+    # Gradio's gr.File needs a file path. Write to a temp file.
+    import tempfile, os
+    tmp = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pdf",
+        prefix=f"OpenLine_Readiness_{datetime.date.today().isoformat()}_",
+    )
+    tmp.write(buf.read())
+    tmp.close()
+    return tmp.name
+
 
 # ============================================================================
 # UI HANDLER
@@ -1035,6 +1440,10 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
 
     submit_btn = gr.Button("Run Assessment", variant="primary", size="lg")
 
+    with gr.Row():
+        pdf_btn = gr.Button("📄 Download Executive Summary PDF", variant="secondary")
+        pdf_file = gr.File(label="Your PDF will appear here", visible=True)
+
     headline_out = gr.HTML()
     with gr.Row():
         gauge_out = gr.Plot(label="Readiness Score")
@@ -1068,6 +1477,19 @@ with gr.Blocks(title="OpenLine Readiness Simulator", css=CUSTOM_CSS) as demo:
             roi_compare_out, payback_out, roi_notes_out,
             risk_summary_out, risk_grid_out, risk_detail_out, recommendations_out,
         ],
+    )
+
+    pdf_btn.click(
+        fn=generate_pdf_for_download,
+        inputs=[
+            num_lines, num_facilities, annual_volume, product_type,
+            current_method, clearance_duration, changeovers_per_week, deviation_frequency,
+            mes_system, ebr_system, equipment_age,
+            inspection_outcome, validation_maturity,
+            operator_familiarity, prior_attempt,
+            labor_rate, time_savings_pct, first_line_cost, additional_line_cost,
+        ],
+        outputs=pdf_file,
     )
 
 
