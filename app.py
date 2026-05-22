@@ -1098,13 +1098,272 @@ def _build_executive_summary_page(styles, score, roi, risks, recommendations,
     elements.append(PageBreak())
     return elements
 
+def _build_factory_profile_page(styles, inputs):
+    """Page showing what the user entered, formatted as an input summary."""
+    elements = []
+    elements.append(Paragraph("Factory Profile", styles["SectionHeading"]))
 
-def build_pdf(score, roi, risks, recommendations,
-              num_lines, num_facilities, *_extra):
+    elements.append(Paragraph(
+        "The assessment that follows is based on the inputs below. "
+        "All defaults are conservative industry midpoints; users may "
+        "override any input in the Advanced section of the web tool.",
+        styles["BodyText2"]
+    ))
+    elements.append(Spacer(1, 0.15 * inch))
+
+    # Group inputs into the same sections as the questionnaire
+    sections = [
+        ("1. Factory Profile", [
+            ("Production lines in scope", f"{int(inputs['num_lines'])}"),
+            ("Facilities involved", f"{int(inputs['num_facilities'])}"),
+            ("Annual production volume", inputs["annual_volume"]),
+            ("Primary product type", inputs["product_type"]),
+        ]),
+        ("2. Current Line Clearance Practice", [
+            ("Current method", inputs["current_method"]),
+            ("Avg clearance duration", inputs["clearance_duration"]),
+            ("Changeovers per line per week", f"{int(inputs['changeovers_per_week'])}"),
+            ("Deviations in past 12 months", inputs["deviation_frequency"]),
+        ]),
+        ("3. IT and Integration Landscape", [
+            ("Existing MES", inputs["mes_system"]),
+            ("eBR system coverage", inputs["ebr_system"]),
+            ("Equipment and PLC age", inputs["equipment_age"]),
+        ]),
+        ("4. Regulatory and Quality Context", [
+            ("Last inspection outcome", inputs["inspection_outcome"]),
+            ("CSV maturity", inputs["validation_maturity"]),
+        ]),
+        ("5. Workforce and Change Management", [
+            ("Operator digital familiarity", inputs["operator_familiarity"]),
+            ("Prior digitization attempt", inputs["prior_attempt"]),
+        ]),
+    ]
+
+    for section_title, rows in sections:
+        # Section sub-header
+        elements.append(Spacer(1, 0.10 * inch))
+        elements.append(Paragraph(
+            f"<b>{section_title}</b>",
+            ParagraphStyle(
+                name="ProfileSubsection",
+                parent=styles["BodyText2"],
+                textColor=PDF_PRIMARY,
+                fontName="Helvetica-Bold",
+                fontSize=10,
+                spaceAfter=4,
+            )
+        ))
+
+        # Build a 2-column table for this section
+        table_data = []
+        for label, value in rows:
+            table_data.append([
+                Paragraph(label, styles["BodyText2"]),
+                Paragraph(f"<b>{value}</b>", styles["BodyText2"]),
+            ])
+        t = Table(table_data, colWidths=[2.7 * inch, 4.6 * inch])
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING",   (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+            ("LINEBELOW", (0, 0), (-1, -2), 0.3, PDF_BORDER),
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#fcfdfe")),
+        ]))
+        elements.append(t)
+
+    elements.append(PageBreak())
+    return elements
+
+
+def _build_scorecard_page(styles, score):
+    """Page showing the four sub-scores with brief explanations."""
+    elements = []
+    elements.append(Paragraph("Readiness Scorecard", styles["SectionHeading"]))
+
+    elements.append(Paragraph(
+        f"Overall readiness score: <b>{score['total']} / 100</b>  ·  "
+        f"Verdict: <b>{score['verdict_label']}</b>",
+        styles["BodyText2"]
+    ))
+    elements.append(Spacer(1, 0.05 * inch))
+    elements.append(Paragraph(score["verdict_message"], styles["BodyText2"]))
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # Sub-score table with weight + score + meaning
+    subscore_rows = [
+        ("Process readiness", 30, score["process"],
+         "Maturity of existing line clearance process. Reflects how digitized "
+         "the operation already is, typical clearance duration, and recent deviations."),
+        ("Organizational readiness", 30, score["organizational"],
+         "Workforce digital familiarity and history with digital transformation. "
+         "Past-attempt history is the single most predictive input in the model."),
+        ("Regulatory readiness", 25, score["regulatory"],
+         "Inspection posture and computer-system validation maturity. "
+         "Underdeveloped CSV creates a documentation bottleneck during rollout."),
+        ("Technical readiness", 15, score["technical"],
+         "MES, eBR, and equipment compatibility. Weighted lowest because "
+         "pharma rollouts more commonly fail on people and process, not technology."),
+    ]
+
+    header = [
+        Paragraph("<b>Category</b>", styles["BodyText2"]),
+        Paragraph("<b>Weight</b>", styles["BodyText2"]),
+        Paragraph("<b>Score</b>", styles["BodyText2"]),
+        Paragraph("<b>What this measures</b>", styles["BodyText2"]),
+    ]
+
+    rows = [header]
+    for category, weight, sc, meaning in subscore_rows:
+        # Color the score by band
+        if sc >= 80:
+            color = COLORS["risk_low"]
+        elif sc >= 65:
+            color = COLORS["accent"]
+        elif sc >= 45:
+            color = COLORS["secondary"]
+        else:
+            color = COLORS["risk_high"]
+
+        rows.append([
+            Paragraph(f"<b>{category}</b>", styles["BodyText2"]),
+            Paragraph(f"{weight}%", styles["BodyText2"]),
+            Paragraph(
+                f"<font color='{color}'><b>{sc:.0f} / 100</b></font>",
+                styles["BodyText2"]
+            ),
+            Paragraph(meaning, styles["BodyText2"]),
+        ])
+
+    score_table = Table(rows,
+                        colWidths=[1.5 * inch, 0.6 * inch, 0.9 * inch, 4.3 * inch])
+    score_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING",   (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, 0), PDF_PANEL_BG),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, PDF_ACCENT),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.3, PDF_BORDER),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.3, PDF_BORDER),
+        ("LINEBEFORE", (0, 0), (0, -1), 0.3, PDF_BORDER),
+        ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+    ]))
+    elements.append(score_table)
+
+    elements.append(PageBreak())
+    return elements
+
+
+def _build_financial_page(styles, roi, inputs):
+    """Page showing the full ROI breakdown as a styled table."""
+    elements = []
+    elements.append(Paragraph("Financial Projection", styles["SectionHeading"]))
+
+    elements.append(Paragraph(
+        "Projected economics if the OpenLine deployment proceeds at the "
+        "scope described. All figures use conservative midpoints of publicly "
+        "available industry ranges; see the methodology appendix for sourcing.",
+        styles["BodyText2"]
+    ))
+    elements.append(Spacer(1, 0.15 * inch))
+
+    payback_str = (f"{roi['payback_months']:.1f} months"
+                   if roi["payback_months"] is not None else "Not applicable")
+
+    # Highlighted savings line — color the annual savings teal
+    metric_rows = [
+        ["Metric", "Value"],
+        ["Annual line clearance events",
+         f"{roi['annual_events']:,}"],
+        ["Current annual line clearance cost",
+         f"${roi['current_annual_cost']:,.0f}"],
+        ["Projected post-rollout annual cost",
+         f"${roi['post_rollout_cost']:,.0f}"],
+        ["Annual savings",
+         f"${roi['annual_savings']:,.0f}"],
+        ["Estimated deployment cost (one-time)",
+         f"${roi['deployment_cost']:,.0f}"],
+        ["Payback period",
+         payback_str],
+    ]
+
+    # Convert to Paragraph objects
+    table_data = []
+    for i, (label, value) in enumerate(metric_rows):
+        is_header = i == 0
+        is_savings_row = label == "Annual savings"
+        is_payback_row = label == "Payback period"
+
+        if is_header:
+            label_p = Paragraph(f"<b>{label}</b>", styles["BodyText2"])
+            value_p = Paragraph(f"<b>{value}</b>", styles["BodyText2"])
+        elif is_savings_row:
+            label_p = Paragraph(f"<b>{label}</b>", styles["BodyText2"])
+            value_p = Paragraph(
+                f"<font color='{COLORS['accent']}'><b>{value}</b></font>",
+                styles["BodyText2"]
+            )
+        elif is_payback_row:
+            label_p = Paragraph(f"<b>{label}</b>", styles["BodyText2"])
+            value_p = Paragraph(f"<b>{value}</b>", styles["BodyText2"])
+        else:
+            label_p = Paragraph(label, styles["BodyText2"])
+            value_p = Paragraph(value, styles["BodyText2"])
+        table_data.append([label_p, value_p])
+
+    fin_table = Table(table_data, colWidths=[4.4 * inch, 2.9 * inch])
+    fin_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING",   (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
+        ("BACKGROUND", (0, 0), (-1, 0), PDF_PANEL_BG),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, PDF_ACCENT),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.3, PDF_BORDER),
+        ("BACKGROUND", (0, 4), (-1, 4), HexColor("#eaf3f3")),  # highlight savings row
+        ("BACKGROUND", (0, -1), (-1, -1), HexColor("#eaf3f3")),  # highlight payback row
+        ("LINEABOVE", (0, 0), (-1, 0), 0.3, PDF_BORDER),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.3, PDF_BORDER),
+        ("LINEBEFORE", (0, 0), (0, -1), 0.3, PDF_BORDER),
+        ("LINEAFTER",  (-1, 0), (-1, -1), 0.3, PDF_BORDER),
+    ]))
+    elements.append(fin_table)
+
+    elements.append(Spacer(1, 0.2 * inch))
+    elements.append(Paragraph(
+        "<b>How this was calculated</b>",
+        styles["BodyText2"]
+    ))
+    elements.append(Paragraph(
+        f"Annual events: {int(inputs['num_lines'])} lines × "
+        f"{int(inputs['changeovers_per_week'])} changeovers/week × 48 production weeks.<br/>"
+        f"Labor hours per event: midpoint of the duration band × 2 operators "
+        f"(operator + QA witness, per GMP).<br/>"
+        f"Labor rate: ${inputs['labor_rate']:.0f}/hour fully-loaded "
+        f"(US Bureau of Labor Statistics base × 2-2.5x for overhead and indirect).<br/>"
+        f"Time savings applied: {inputs['time_savings_pct']:.0f}% reduction in clearance time "
+        "(Catalyx publishes 85%; default conservatively halved).<br/>"
+        f"Deployment cost: ${inputs['first_line_cost']:,.0f} for the first line in each "
+        f"of {int(inputs['num_facilities'])} facilities, plus "
+        f"${inputs['additional_line_cost']:,.0f} per additional line — industry-typical "
+        "midpoint of $50K–$150K per line for enterprise pharma machine vision.",
+        styles["BodyText2"]
+    ))
+
+    elements.append(PageBreak())
+    return elements
+
+
+def build_pdf(score, roi, risks, recommendations, inputs):
     """
     Build the PDF and return a BytesIO buffer.
-    Phase 6A: cover + executive summary.
-    Phases 6B and 6C will add the remaining sections.
+    Phase 6B: cover + exec summary + factory profile + scorecard + financial.
     """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -1121,13 +1380,16 @@ def build_pdf(score, roi, risks, recommendations,
     elements.extend(_build_cover_page(styles, score, roi))
     elements.extend(_build_executive_summary_page(
         styles, score, roi, risks, recommendations,
-        num_lines, num_facilities,
+        int(inputs["num_lines"]), int(inputs["num_facilities"]),
     ))
+    elements.extend(_build_factory_profile_page(styles, inputs))
+    elements.extend(_build_scorecard_page(styles, score))
+    elements.extend(_build_financial_page(styles, roi, inputs))
 
-    # Placeholder closing page (will be replaced in 6B/6C)
+    # Placeholder for Phase 6C
     elements.append(Paragraph(
-        "Additional sections (scorecard, ROI detail, risk register, "
-        "recommendations, and methodology) will appear here in later phases.",
+        "Risk register, next-steps recommendations, and methodology "
+        "appendix will appear here in Phase 6C.",
         styles["BodyText2"]
     ))
 
@@ -1147,7 +1409,7 @@ def generate_pdf_for_download(
 ):
     """
     Wired to the 'Download PDF' button. Runs the same computations as
-    process_form(), but returns a downloadable file path.
+    process_form(), then assembles the full PDF.
     """
     score = compute_readiness_score(
         current_method, clearance_duration, deviation_frequency,
@@ -1170,11 +1432,21 @@ def generate_pdf_for_download(
     risks = compute_risk_heatmap(**common_inputs)
     recommendations = compute_recommendations(**common_inputs)
 
-    buf = build_pdf(score, roi, risks, recommendations,
-                    int(num_lines), int(num_facilities))
+    # Full input bundle for the PDF (includes display/financial fields)
+    inputs = {
+        **common_inputs,
+        "annual_volume": annual_volume,
+        "product_type": product_type,
+        "changeovers_per_week": changeovers_per_week,
+        "labor_rate": labor_rate,
+        "time_savings_pct": time_savings_pct,
+        "first_line_cost": first_line_cost,
+        "additional_line_cost": additional_line_cost,
+    }
 
-    # Gradio's gr.File needs a file path. Write to a temp file.
-    import tempfile, os
+    buf = build_pdf(score, roi, risks, recommendations, inputs)
+
+    import tempfile
     tmp = tempfile.NamedTemporaryFile(
         delete=False, suffix=".pdf",
         prefix=f"OpenLine_Readiness_{datetime.date.today().isoformat()}_",
