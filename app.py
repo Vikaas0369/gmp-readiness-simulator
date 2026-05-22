@@ -220,7 +220,7 @@ SAMPLE_SCENARIO = {
     "time_savings_pct": 45,
     "first_line_cost": 90_000,
     "additional_line_cost": 55_000,
-    "downtime_cost_per_hour": 3000,
+    "downtime_cost_per_hour": 1000,
 }
 
 
@@ -872,7 +872,7 @@ def _pdf_styles():
     styles.add(ParagraphStyle(name="EyebrowLabel", fontName="Helvetica-Bold",
         fontSize=8, leading=12, textColor=PDF_TEXT_MUTED, spaceAfter=4))
     styles.add(ParagraphStyle(name="HeroNumber", fontName="Helvetica-Bold",
-        fontSize=32, leading=36, textColor=PDF_PRIMARY, spaceAfter=4))
+        fontSize=27, leading=31, textColor=PDF_PRIMARY, spaceAfter=4))
     styles.add(ParagraphStyle(name="HeroVerdict", fontName="Helvetica-Bold",
         fontSize=18, leading=22, textColor=PDF_PRIMARY, spaceAfter=6))
     styles.add(ParagraphStyle(name="BodyText2", fontName="Helvetica",
