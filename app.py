@@ -239,8 +239,9 @@ def risk_legacy_integration(mes_system, ebr_system, equipment_age, **_):
     if equipment_age == "Mostly over 10 years":
         return "Medium", ("Equipment is mostly over 10 years old; PLC and sensor "
             "compatibility checks will likely surface integration edge cases.")
-    return "Low", (f"Modern MES ({mes_system}) and strong eBR coverage ({ebr_system}) "
-        "make integration straightforward.")
+    ebr_descriptor = "strong" if ebr_system == "Yes" else "in-place"
+    return "Low", (f"Modern MES ({mes_system}) and {ebr_descriptor} eBR coverage "
+        f"({ebr_system}) make integration straightforward.")
 
 
 def risk_validation_backlog(validation_maturity, num_lines, num_facilities, **_):
@@ -366,6 +367,11 @@ def rec_validation_capacity(validation_maturity, num_lines, **_):
         return (1, f"**Build validation templates before scoping.** Validation maturity "
             f"is underdeveloped, targeting {num_lines} lines. Without reusable IQ/OQ/PQ "
             "templates, documentation will consume your QA team.")
+    if validation_maturity == "Functional but ad-hoc" and num_lines > 15:
+        return (2, f"**Strengthen validation templates before scaling to "
+            f"{num_lines} lines.** Ad-hoc validation can keep up at small scale, but "
+            f"at {num_lines} lines documentation will fall behind deployment. Invest "
+            "in reusable IQ/OQ/PQ templates and a dedicated CSV lead before kickoff.")
     return None
 
 
@@ -1020,7 +1026,7 @@ def _build_executive_summary_page(styles, score, roi, risks, recommendations,
          Paragraph(_fmt_money_compact(roi['annual_savings']), styles["HeroNumber"]),
          Paragraph(_fmt_money_compact(roi['three_year_net_benefit']), styles["HeroNumber"])],
         [Paragraph(score["verdict_label"], styles["BodyText2"]),
-         Paragraph("vs. 24-month threshold", styles["Caption"]),
+         Paragraph("vs. illustrative 24-mo threshold", styles["Caption"]),
          Paragraph(f"per year at {num_lines} lines", styles["Caption"]),
          Paragraph("3 yr savings − deploy cost", styles["Caption"])],
     ]
@@ -1060,7 +1066,18 @@ def _build_executive_summary_page(styles, score, roi, risks, recommendations,
         "Detailed rationale in the Risk Register section.",
         styles["BodyText2"]))
 
-    elements.append(Paragraph("<b>Scope under assessment</b>", styles["BodyText2"]))
+    # Contextual explainer: when readiness is shaky but ROI looks strong
+    if score["total"] < 65 and roi["payback_months"] is not None and roi["payback_months"] < 12:
+        elements.append(Paragraph("<b>Why this looks contradictory</b>", styles["BodyText2"]))
+        elements.append(Paragraph(
+            "The financial case looks strong, yet the readiness score is below "
+            "the &quot;Ready with caveats&quot; threshold. This is the exact pattern "
+            "the simulator is designed to surface: factories with the most operational "
+            "waste often have the strongest ROI on paper, but also the lowest probability "
+            "of successfully capturing it. A premature rollout would likely stall before "
+            "the savings are realized. Address the risks flagged below first; the "
+            "financial upside will still be there.",
+            styles["BodyText2"]))
     elements.append(Paragraph(
         f"{num_lines} production lines across {num_facilities} "
         f"{'facility' if num_facilities == 1 else 'facilities'}. "
