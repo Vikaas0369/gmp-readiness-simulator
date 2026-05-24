@@ -616,6 +616,38 @@ def compute_rollout_path(score_total, high_risk_count):
     return "Do not scale yet — close foundational gaps first"
 
 
+def detect_weak_business_case(roi, downtime_cost_per_hour):
+    """
+    Identifies scenarios where the labor-only ROI is structurally weak —
+    typically small factories where deployment cost dominates the annual
+    labor savings opportunity. Returns (is_weak, reason_text) tuple.
+    """
+    if roi["payback_months"] is None:
+        return False, ""
+    if roi["payback_months"] <= 36:
+        return False, ""
+
+    # Payback exceeds 36 months — flag it with appropriate context
+    if downtime_cost_per_hour == 0:
+        return True, (
+            "Projected payback exceeds 36 months because the business case is "
+            "based on labor savings only. At this factory's scale and labor "
+            "rate, labor recovery alone is unlikely to justify the deployment "
+            "cost. Two paths to strengthen the case: (1) include downtime "
+            "cost in the Advanced section if production line downtime is "
+            "materially costly at this site, or (2) evaluate AI line clearance "
+            "as part of a broader GMP automation portfolio rather than as "
+            "a standalone deployment."
+        )
+    return True, (
+        "Projected payback exceeds 36 months even with downtime savings "
+        "included. At this scale, the financial case alone may not justify "
+        "deployment. Consider whether AI line clearance is part of a broader "
+        "GMP automation strategy where shared platform and operating-model "
+        "investments improve the cumulative business case."
+    )
+
+
 def compute_initial_scope(score_total, num_lines):
     """
     Suggests how many lines to deploy first before scaling further.
@@ -1466,7 +1498,7 @@ def _build_risk_adjusted_page(styles, score, roi, risks, num_lines):
     elements.append(Paragraph(
         "Standard ROI assumes the organization captures 100% of projected savings. "
         "Real-world rollouts capture less — sometimes much less — depending on "
-        "readiness. We adjust the financial projection by a capture probability "
+        "readiness. We adjust the financial projection by a execution capture factor "
         "derived from the readiness score, then surface a recommended rollout "
         "approach and an initial deployment scope sized to that readiness.",
         styles["BodyText2"]))
@@ -1546,6 +1578,37 @@ def _build_risk_adjusted_page(styles, score, roi, risks, num_lines):
         "initially, validate the operating model, then expand based on captured "
         "savings and lessons learned. Initial scope is sized conservatively for "
         "your current readiness; expand only after proving stable operations.")
+
+    # Weak-business-case warning (when payback exceeds 36 months)
+    downtime_cost = 0
+    is_weak_case, weak_case_reason = detect_weak_business_case(roi, downtime_cost)
+    # Recompute with actual downtime since it's needed for the warning text
+    actual_downtime = roi.get("downtime_cost_per_hour", 0)
+    is_weak_case, weak_case_reason = detect_weak_business_case(roi, actual_downtime)
+    if is_weak_case:
+        elements.append(Spacer(1, 0.15 * inch))
+        warning_table = Table(
+            [[Paragraph(
+                f"<b>⚠ Business case structural note:</b> {weak_case_reason}",
+                ParagraphStyle(
+                    name="WarningText",
+                    parent=styles["BodyText2"],
+                    fontSize=10,
+                    leading=14,
+                    textColor=PDF_PRIMARY,
+                ))]],
+            colWidths=[7.3 * inch]
+        )
+        warning_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 14),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+            ("TOPPADDING", (0, 0), (-1, -1), 12),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#fffbeb")),
+            ("LINEBEFORE", (0, 0), (0, -1), 3, PDF_SECONDARY),
+        ]))
+        elements.append(warning_table)
 
     elements.append(PageBreak())
     return elements
@@ -1904,6 +1967,16 @@ High-rated risks should be addressed before committing to a full rollout.*
     rollout_path = compute_rollout_path(score["total"], high_count_local)
     initial_scope = compute_initial_scope(score["total"], num_lines)
 
+    # Weak-business-case warning
+    is_weak_case, weak_case_reason = detect_weak_business_case(roi, downtime_cost_per_hour)
+    weak_case_md = ""
+    if is_weak_case:
+        weak_case_md = f"""
+
+> ⚠️ **Business case structural note:** {weak_case_reason}
+
+"""
+
     radj_payback_text = (f"{roi['risk_adjusted_payback_months']:.1f} months"
         if roi["risk_adjusted_payback_months"] is not None else "N/A")
 
@@ -1928,7 +2001,7 @@ Standard ROI assumes 100% of projected savings are captured. Real-world rollouts
 ### Suggested first scope
 
 Deploy **{initial_scope} {'line' if initial_scope == 1 else 'lines'}** initially, validate the operating model, then expand based on captured savings and lessons learned.
-
+{weak_case_md}
 </div>
 """
 
