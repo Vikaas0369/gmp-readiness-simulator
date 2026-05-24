@@ -55,6 +55,8 @@ The output renders both in-browser and as a downloadable **10-page executive sum
 
 **Risk-adjusted ROI.** A readiness-based capture factor reduces theoretical savings to a more realistic projection. Bands: 80+ = 90%, 65–79 = 70%, 45–64 = 45%, below 45 = 25%. These are illustrative planning factors reflecting execution risk, not statistical probabilities.
 
+**Note on the 15 inputs.** Thirteen of the inputs feed directly into scoring, ROI, or risk rules. Two inputs — annual production volume and primary product type — are captured for business context and report framing in this build. Future versions can use them as scale and complexity modifiers (for example, biologic plants run different downtime cost profiles than oral solid dose plants, and ultra-high-volume plants face different rollout sequencing trade-offs). Surfacing this transparently rather than burying it is intentional.
+
 **Risk rules.** 8 rules operate against the user's inputs to produce a rating + rationale per risk. Example: "Validation maturity = ad-hoc + scope >15 lines" triggers a High rating on validation backlog with a specific explanation referencing the input values. Recommendations are priority-sorted (regulatory blockers first, then organizational scar tissue, then technical foundations, then process improvements, then tactical optimizations) and capped at 7 items.
 
 **Structural warning.** When projected payback exceeds 36 months — typically small factories where deployment cost dominates labor recovery — the tool surfaces a "business case structural note" suggesting either downtime cost inclusion or evaluation as part of a broader GMP automation portfolio.
