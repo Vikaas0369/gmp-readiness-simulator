@@ -2104,7 +2104,7 @@ HEADER_HTML = f"""
 </div>
 """
 
-with gr.Blocks(title=APP_TITLE, css=CUSTOM_CSS) as demo:
+with gr.Blocks(title=APP_TITLE) as demo:
     gr.HTML(HEADER_HTML)
 
     with gr.Row():
@@ -2283,4 +2283,4 @@ with gr.Blocks(title=APP_TITLE, css=CUSTOM_CSS) as demo:
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(css=CUSTOM_CSS)
