@@ -7,10 +7,10 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
-from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, KeepTogether,
+    PageBreak,
 )
 
 # ============================================================================
@@ -1580,9 +1580,6 @@ def _build_risk_adjusted_page(styles, score, roi, risks, num_lines):
         "your current readiness; expand only after proving stable operations.")
 
     # Weak-business-case warning (when payback exceeds 36 months)
-    downtime_cost = 0
-    is_weak_case, weak_case_reason = detect_weak_business_case(roi, downtime_cost)
-    # Recompute with actual downtime since it's needed for the warning text
     actual_downtime = roi.get("downtime_cost_per_hour", 0)
     is_weak_case, weak_case_reason = detect_weak_business_case(roi, actual_downtime)
     if is_weak_case:
